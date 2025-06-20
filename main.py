@@ -121,6 +121,9 @@ class ConnectionApp:
         self.canvas.bind("<Button-3>", self.on_right_click)
         self.canvas.bind("<Motion>", self.on_mouse_move)
         self.canvas.bind("<Double-Button-1>", self.on_double_click)
+        self.canvas.bind("<Button-2>", self.on_middle_button_press)
+        self.canvas.bind("<B2-Motion>", self.on_middle_button_motion)
+        self.canvas.bind("<ButtonRelease-2>", self.on_middle_button_release)
           # Make canvas focusable and bind keys
         self.canvas.configure(highlightthickness=1, highlightcolor=COLORS['primary'])
         self.canvas.bind("<Key-Escape>", self.on_escape_key)
@@ -142,6 +145,74 @@ class ConnectionApp:
                                     foreground=COLORS['text_secondary'],
                                     style="Modern.TLabel")
         self.status_label.pack(side=tk.LEFT)
+
+        # --- Zoom slider ---
+        self.zoom_var = tk.DoubleVar(value=1.0)
+        self.zoom_slider = ttk.Scale(
+            self.status_frame,
+            from_=0.5, to=1.0, orient=tk.HORIZONTAL,
+            variable=self.zoom_var,
+            command=self.on_zoom,
+            length=150
+        )
+        self.zoom_slider.pack(side=tk.RIGHT, padx=(0, 10))
+        self.zoom_label = ttk.Label(self.status_frame, text="Zoom", style="Modern.TLabel")
+        self.zoom_label.pack(side=tk.RIGHT)
+        
+        # Bind canvas resize event
+        self.canvas.bind('<Configure>', self.on_canvas_resize)
+    
+    def on_zoom(self, value):
+        # Scale the canvas content based on the zoom value
+        try:
+            zoom = float(value)
+        except ValueError:
+            zoom = 1.0
+        # Reset scale, then apply new scale
+        self.canvas.scale("all", 0, 0, 1/self._last_zoom if hasattr(self, '_last_zoom') else 1, 1/self._last_zoom if hasattr(self, '_last_zoom') else 1)
+        self.canvas.scale("all", 0, 0, zoom, zoom)
+        self._last_zoom = zoom
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        self.rescale_text(zoom)
+        self.redraw_grid()
+
+    def rescale_text(self, zoom):
+        # Rescale all text items on the canvas
+        for item in self.canvas.find_all():
+            if self.canvas.type(item) == 'text':
+                current_font = self.canvas.itemcget(item, 'font')
+                # Parse font string: e.g., 'Segoe UI 10 bold'
+                parts = current_font.split()
+                # Find the first integer in the font string (the size)
+                base_size = None
+                for i, part in enumerate(parts):
+                    if part.isdigit():
+                        base_size = int(part)
+                        size_index = i
+                        break
+                if base_size is not None:
+                    new_size = max(6, int(base_size * zoom))
+                    # Rebuild font string with new size
+                    new_font = ' '.join(parts[:size_index] + [str(new_size)] + parts[size_index+1:])
+                else:
+                    # fallback: just set size
+                    new_font = f"Segoe UI {int(10 * zoom)}"
+                self.canvas.itemconfig(item, font=new_font)
+
+    def on_canvas_resize(self, event):
+        self.redraw_grid()
+
+    def redraw_grid(self):
+        # Remove old grid
+        self.canvas.delete("grid")
+        width = self.canvas.winfo_width()
+        height = self.canvas.winfo_height()
+        grid_size = 40 * (self._last_zoom if hasattr(self, '_last_zoom') else 1)
+        for x in range(0, int(width + grid_size), int(grid_size)):
+            self.canvas.create_line(x, 0, x, height, fill='#e2e8f0', width=1, tags="grid")
+        for y in range(0, int(height + grid_size), int(grid_size)):
+            self.canvas.create_line(0, y, width, y, fill='#e2e8f0', width=1, tags="grid")
+        self.canvas.tag_lower("grid")
     
     def create_modern_button(self, parent, text, command, color):
         """Create a modern styled button"""
@@ -244,10 +315,17 @@ class ConnectionApp:
         else:
             logger.info("Dialog was cancelled")
             
-    def create_person_widget(self, person_id):
+    def create_person_widget(self, person_id, zoom=None):
         logger.info(f"Creating modern widget for person {person_id}")
         person = self.people[person_id]
-        x, y = person.x, person.y
+        if zoom is None:
+            zoom = self._last_zoom if hasattr(self, '_last_zoom') else 1.0
+        # Store base positions if not already present
+        if not hasattr(person, 'base_x'):
+            person.base_x = person.x
+            person.base_y = person.y
+        x = person.x * zoom
+        y = person.y * zoom
         logger.info(f"Widget position: ({x}, {y})")
         
         # Create group
@@ -266,26 +344,18 @@ class ConnectionApp:
         info_lines = [line for line in info_lines if line.strip()]
         
         # Calculate modern card dimensions
-        max_line_length = max(len(line) for line in info_lines)
-        card_width = max(max_line_length * 9, 200)  # More generous width
-        card_height = max(len(info_lines) * 25 + 40, 120)  # More generous height
+        card_width = max(max(len(line) for line in info_lines) * 9, 200) * zoom
+        card_height = max(len(info_lines) * 25 + 40, 120) * zoom
         
         half_width = card_width // 2
         half_height = card_height // 2
         
         logger.info(f"Calculated modern card dimensions: {card_width}x{card_height}")
           # Create shadow effect (multiple rectangles with offset)
-        shadow_offset = 3
+        shadow_offset = int(3 * zoom)
         for i in range(3, 0, -1):
             # Use progressively lighter gray colors for shadow effect
-            shadow_opacity = 0.1 + (i * 0.05)  # Increasing opacity for each layer
-            shadow_color = f"#{'0' * 6}"  # Start with black
-            if i == 3:
-                shadow_color = '#e0e0e0'  # Light gray
-            elif i == 2:
-                shadow_color = '#d0d0d0'  # Slightly darker gray
-            else:
-                shadow_color = '#c0c0c0'  # Darker gray
+            shadow_color = '#e0e0e0' if i == 3 else ('#d0d0d0' if i == 2 else '#c0c0c0')
             
             shadow = self.canvas.create_rectangle(
                 x - half_width + i, y - half_height + i,
@@ -307,7 +377,7 @@ class ConnectionApp:
         group.append(main_card)
         
         # Header section with accent color
-        header_height = 30
+        header_height = int(30 * zoom)
         header = self.canvas.create_rectangle(
             x - half_width, y - half_height,
             x + half_width, y - half_height + header_height,
@@ -317,9 +387,9 @@ class ConnectionApp:
         group.append(header)
         
         # Person avatar (modern circular design)
-        avatar_size = 20
-        avatar_x = x - half_width + 15
-        avatar_y = y - half_height + 15
+        avatar_size = int(20 * zoom)
+        avatar_x = x - half_width + int(15 * zoom)
+        avatar_y = y - half_height + int(15 * zoom)
         
         # Avatar background
         avatar_bg = self.canvas.create_oval(
@@ -333,47 +403,55 @@ class ConnectionApp:
         # Avatar icon
         avatar_icon = self.canvas.create_text(
             avatar_x, avatar_y, text="👤",
-            font=("Arial", 10), fill=COLORS['primary'],
+            font=("Arial", int(10 * zoom)), fill=COLORS['primary'],
             tags=(f"person_{person_id}", "person")
         )
         group.append(avatar_icon)
         
         # Name in header (white text)
         name_text = self.canvas.create_text(
-            avatar_x + avatar_size + 10, avatar_y,
+            avatar_x + avatar_size + int(10 * zoom), avatar_y,
             text=person.name or "Unnamed",
-            anchor="w", font=("Segoe UI", 11, "bold"), 
+            anchor="w", font=("Segoe UI", int(11 * zoom), "bold"), 
             fill='white',
             tags=(f"person_{person_id}", "person")
         )
         group.append(name_text)
         
         # Details section
-        details_start_y = y - half_height + header_height + 15
-        line_height = 20
+        details_start_y = y - half_height + header_height + int(15 * zoom)
+        line_height = int(20 * zoom)
         
         details = [
-            (f"🎂 {person.dob}", person.dob),
-            (f"🏷️ {person.alias}", person.alias),
-            (f"🏠 {person.address}", person.address),
-            (f"📞 {person.phone}", person.phone)
+            ("🎂", person.dob),
+            ("🏷️", person.alias),
+            ("🏠", person.address),
+            ("📞", person.phone)
         ]
-        
         current_y = details_start_y
-        for display_text, value in details:
+        icon_x = x - half_width + int(15 * zoom)
+        text_x = icon_x + int(25 * zoom)  # Space between icon and text
+        for icon, value in details:
             if value and value.strip():
-                detail_text = self.canvas.create_text(
-                    x - half_width + 15, current_y,
-                    text=display_text,
-                    anchor="nw", font=("Segoe UI", 9), 
+                icon_item = self.canvas.create_text(
+                    icon_x, current_y,
+                    text=icon,
+                    anchor="nw", font=("Segoe UI Emoji", int(9 * zoom)),
                     fill=COLORS['text_primary'],
                     tags=(f"person_{person_id}", "person")
                 )
-                group.append(detail_text)
+                text_item = self.canvas.create_text(
+                    text_x, current_y,
+                    text=value,
+                    anchor="nw", font=("Segoe UI", int(9 * zoom)),
+                    fill=COLORS['text_primary'],
+                    tags=(f"person_{person_id}", "person")
+                )
+                group.extend([icon_item, text_item])
                 current_y += line_height
         
         # Add subtle border radius effect (visual enhancement)
-        corner_size = 4
+        corner_size = int(4 * zoom)
         corners = [
             # Top-left
             (x - half_width, y - half_height, x - half_width + corner_size, y - half_height + corner_size),
@@ -501,56 +579,70 @@ class ConnectionApp:
                     pass
             
     def on_canvas_click(self, event):
-        # Find clicked item
-        items = self.canvas.find_closest(event.x, event.y)
+        # Improved hit detection: find all items under the cursor
+        tolerance = 3  # Small area around the cursor
+        items = self.canvas.find_overlapping(event.x - tolerance, event.y - tolerance, event.x + tolerance, event.y + tolerance)
         if not items:
             return
             
-        clicked = items[0]
-        tags = self.canvas.gettags(clicked)
-        
         # Clear previous selections
         self.clear_connection_selection()
         
-        if any("person" in tag for tag in tags):
-            # Get person ID from tags
-            for tag in tags:
-                if tag.startswith("person_"):
-                    person_id = int(tag.split("_")[1])
-                    self.selected_person = person_id
-                    self.drag_data = {"x": event.x, "y": event.y}
-                    self.dragging = True
-                    break
-        elif any("connection_" in tag for tag in tags):
-            # Check if this is a connection label or clickable area
-            for tag in tags:
-                if tag.startswith("connection_label_") or tag.startswith("connection_clickable_"):
-                    # Extract connection IDs from tag
-                    parts = tag.split("_")
-                    if len(parts) >= 4:
-                        id1, id2 = int(parts[2]), int(parts[3])
-                        self.selected_connection = (min(id1, id2), max(id1, id2))
-                        self.highlight_connection_selection()
-                        self.canvas.focus_set()  # Allow keyboard events
+        # Find the topmost person item under the cursor
+        selected_person_id = None
+        for item in reversed(items):  # reversed: topmost first
+            tags = self.canvas.gettags(item)
+            if any("person" in tag for tag in tags):
+                for tag in tags:
+                    if tag.startswith("person_"):
+                        selected_person_id = int(tag.split("_")[1])
                         break
-                    
+                if selected_person_id is not None:
+                    break
+        
+        if selected_person_id is not None:
+            self.selected_person = selected_person_id
+            self.drag_data = {"x": event.x, "y": event.y}
+            self.dragging = True
+        else:
+            # Check for connection selection as before
+            for item in items:
+                tags = self.canvas.gettags(item)
+                if any("connection_" in tag for tag in tags):
+                    for tag in tags:
+                        if tag.startswith("connection_label_") or tag.startswith("connection_clickable_"):
+                            parts = tag.split("_")
+                            if len(parts) >= 4:
+                                id1, id2 = int(parts[2]), int(parts[3])
+                                self.selected_connection = (min(id1, id2), max(id1, id2))
+                                self.highlight_connection_selection()
+                                self.canvas.focus_set()
+                                break
+                    break
+    
     def on_canvas_drag(self, event):
         if self.dragging and self.selected_person:
-            dx = event.x - self.drag_data["x"]
-            dy = event.y - self.drag_data["y"]
-            
-            # Move person widget
+            zoom = self._last_zoom if hasattr(self, '_last_zoom') else 1.0
+            dx_screen = event.x - self.drag_data["x"]
+            dy_screen = event.y - self.drag_data["y"]
+            dx_world = dx_screen / zoom
+            dy_world = dy_screen / zoom
+            logger.debug(f"[DRAG] Zoom: {zoom:.3f}, Mouse: ({event.x}, {event.y}), "
+                         f"Screen Δ: ({dx_screen}, {dy_screen}), World Δ: ({dx_world:.2f}, {dy_world:.2f})")
+
+            # Move person widget visually (scaled)
             for item in self.person_widgets[self.selected_person]:
-                self.canvas.move(item, dx, dy)
-                
-            # Update position
-            self.people[self.selected_person].x += dx
-            self.people[self.selected_person].y += dy
-            
+                self.canvas.move(item, dx_screen, dy_screen)
+
+            # Update logical (unscaled) position using world delta
+            self.people[self.selected_person].x += dx_world
+            self.people[self.selected_person].y += dy_world
+            logger.debug(f"[DRAG] Updated logical position: ({self.people[self.selected_person].x}, {self.people[self.selected_person].y})")
+
             # Update connections immediately
             self.update_connections()
-            
-            self.drag_data = {"x": event.x, "y": event.y}    
+
+            self.drag_data = {"x": event.x, "y": event.y}
     def on_canvas_release(self, event):
         self.dragging = False
     
@@ -733,49 +825,38 @@ class ConnectionApp:
         # Draw line
         self.draw_connection(id1, id2, label)
         
-    def draw_connection(self, id1, id2, label):
+    def draw_connection(self, id1, id2, label, zoom=None):
+        if zoom is None:
+            zoom = self._last_zoom if hasattr(self, '_last_zoom') else 1.0
         p1 = self.people[id1]
         p2 = self.people[id2]
-        
-        # Create modern connection line with gradient effect
-        # Main connection line
-        line = self.canvas.create_line(p1.x, p1.y, p2.x, p2.y, 
+        x1, y1 = p1.x * zoom, p1.y * zoom
+        x2, y2 = p2.x * zoom, p2.y * zoom
+        line = self.canvas.create_line(x1, y1, x2, y2, 
                                      fill=COLORS['secondary'], 
                                      width=3,
                                      smooth=True,
                                      tags=("connection",))
-          # Shadow line for depth effect
-        shadow_line = self.canvas.create_line(p1.x+1, p1.y+1, p2.x+1, p2.y+1, 
+        shadow_line = self.canvas.create_line(x1+1, y1+1, x2+1, y2+1, 
                                             fill='#CCCCCC', 
                                             width=3,
                                             smooth=True,
                                             tags=("connection", "shadow"))
-        
-        # Calculate label position at midpoint
-        mid_x = (p1.x + p2.x) / 2
-        mid_y = (p1.y + p2.y) / 2
-        
-        # Modern label design
-        label_width = max(len(label) * 8, 60)
-        label_height = 28
-        
-        padding = 15
+        mid_x = (x1 + x2) / 2
+        mid_y = (y1 + y2) / 2
+        label_width = max(len(label) * 8, 60) * zoom
+        label_height = 28 * zoom
+        padding = 15 * zoom
         box_width = label_width + padding * 2
-        box_height = label_height + 8
-        
+        box_height = label_height + 8 * zoom
         half_width = box_width / 2
         half_height = box_height / 2
-        
         logger.info(f"Modern connection label '{label}' - calculated box: {box_width}x{box_height}")
-        
-        # Label shadow
         label_shadow = self.canvas.create_rectangle(
             mid_x - half_width + 2, mid_y - half_height + 2, 
             mid_x + half_width + 2, mid_y + half_height + 2,
             fill='#000015', outline='', width=0,
             tags=("connection", "shadow"))
-        
-        # Modern label background with rounded appearance
         label_bg = self.canvas.create_rectangle(
             mid_x - half_width, mid_y - half_height, 
             mid_x + half_width, mid_y + half_height,
@@ -783,9 +864,7 @@ class ConnectionApp:
             outline=COLORS['secondary'], 
             width=2,
             tags=("connection",))
-        
-        # Connection type icon based on label
-        icon = "🔗"  # default
+        icon = "🔗"
         if "family" in label.lower() or "parent" in label.lower() or "child" in label.lower():
             icon = "👨‍👩‍👧‍👦"
         elif "friend" in label.lower():
@@ -794,19 +873,15 @@ class ConnectionApp:
             icon = "💼"
         elif "partner" in label.lower() or "spouse" in label.lower():
             icon = "💑"
-        
-        # Icon text
         icon_text = self.canvas.create_text(
-            mid_x - half_width + 15, mid_y,
+            mid_x - half_width + int(15 * zoom), mid_y,
             text=icon,
-            font=("Arial", 12),
+            font=("Arial", int(12 * zoom)),
             tags=("connection",))
-          # Label text with modern styling
         label_text = self.canvas.create_text(
-            mid_x + 5, mid_y,
+            mid_x, mid_y,
             text=label,
-            font=("Segoe UI", 10, "bold"),
-            fill=COLORS['text_primary'],
+            font=("Segoe UI", int(10 * zoom)),
             tags=("connection", f"connection_label_{min(id1, id2)}_{max(id1, id2)}"))
         
         # Make label clickable by adding larger invisible area
@@ -829,53 +904,41 @@ class ConnectionApp:
         self.canvas.tag_raise(label_text)
         
     def update_connections(self):
+        zoom = self._last_zoom if hasattr(self, '_last_zoom') else 1.0
         # Redraw all modern connections
         for (id1, id2), elements in self.connection_lines.items():
             if len(elements) >= 7:  # New format with 7 elements
                 shadow_line, line, label_shadow, label_bg, icon_text, label_text, clickable_area = elements
-                
+
                 p1 = self.people[id1]
                 p2 = self.people[id2]
-                
+                x1, y1 = p1.x * zoom, p1.y * zoom
+                x2, y2 = p2.x * zoom, p2.y * zoom
+
                 # Update shadow line
-                self.canvas.coords(shadow_line, p1.x+1, p1.y+1, p2.x+1, p2.y+1)
-                
+                self.canvas.coords(shadow_line, x1+1, y1+1, x2+1, y2+1)
                 # Update main line
-                self.canvas.coords(line, p1.x, p1.y, p2.x, p2.y)
-                
+                self.canvas.coords(line, x1, y1, x2, y2)
+
                 # Update label position
-                mid_x = (p1.x + p2.x) / 2
-                mid_y = (p1.y + p2.y) / 2
-                
-                # Get the current label text to calculate size
+                mid_x = (x1 + x2) / 2
+                mid_y = (y1 + y2) / 2
                 label = self.canvas.itemcget(label_text, "text")
-                
-                # Calculate modern label dimensions
-                label_width = max(len(label) * 8, 60)
-                label_height = 28
-                padding = 15
+                label_width = max(len(label) * 8, 60) * zoom
+                label_height = 28 * zoom
+                padding = 15 * zoom
                 box_width = label_width + padding * 2
-                box_height = label_height + 8
-                
+                box_height = label_height + 8 * zoom
                 half_width = box_width / 2
                 half_height = box_height / 2
-                
-                # Update shadow position
                 self.canvas.coords(label_shadow, 
                                  mid_x - half_width + 2, mid_y - half_height + 2, 
                                  mid_x + half_width + 2, mid_y + half_height + 2)
-                
-                # Update background rectangle
                 self.canvas.coords(label_bg, 
                                  mid_x - half_width, mid_y - half_height, 
                                  mid_x + half_width, mid_y + half_height)
-                
-                # Update icon position
-                self.canvas.coords(icon_text, mid_x - half_width + 15, mid_y)
-                  # Update text position
-                self.canvas.coords(label_text, mid_x + 5, mid_y)
-                
-                # Update clickable area position
+                self.canvas.coords(icon_text, mid_x - half_width + int(15 * zoom), mid_y)
+                self.canvas.coords(label_text, mid_x, mid_y)
                 self.canvas.coords(clickable_area,
                                  mid_x - half_width, mid_y - half_height, 
                                  mid_x + half_width, mid_y + half_height)
@@ -884,12 +947,11 @@ class ConnectionApp:
                 line, label_bg, label_text = elements[:3]
                 p1 = self.people[id1]
                 p2 = self.people[id2]
-                
-                self.canvas.coords(line, p1.x, p1.y, p2.x, p2.y)
-                
-                mid_x = (p1.x + p2.x) / 2
-                mid_y = (p1.y + p2.y) / 2
-                
+                x1, y1 = p1.x * zoom, p1.y * zoom
+                x2, y2 = p2.x * zoom, p2.y * zoom
+                self.canvas.coords(line, x1, y1, x2, y2)
+                mid_x = (x1 + x2) / 2
+                mid_y = (y1 + y2) / 2
                 self.canvas.coords(label_bg, mid_x - 30, mid_y - 10, mid_x + 30, mid_y + 10)
                 self.canvas.coords(label_text, mid_x, mid_y)
             
@@ -937,20 +999,18 @@ class ConnectionApp:
         self.canvas.delete("all")
         self.person_widgets.clear()
         self.connection_lines.clear()
-        
         # Recreate the grid pattern after clearing
         self.add_grid_pattern()
-        
+        zoom = self._last_zoom if hasattr(self, '_last_zoom') else 1.0
         # Redraw connections first
         for id1, person1 in self.people.items():
             for id2, label in person1.connections.items():
                 if id1 < id2:  # Avoid duplicates
-                    self.draw_connection(id1, id2, label)
-                    
+                    self.draw_connection(id1, id2, label, zoom=zoom)
         # Redraw people
         for person_id in self.people:
-            self.create_person_widget(person_id)
-            
+            self.create_person_widget(person_id, zoom=zoom)
+
     def save_data(self):
         filename = filedialog.asksaveasfilename(defaultextension=".csv",
                                               filetypes=[("CSV files", "*.csv")])
@@ -958,15 +1018,12 @@ class ConnectionApp:
             with open(filename, 'w', newline='') as f:
                 writer = csv.writer(f)
                 writer.writerow(['ID', 'Name', 'DOB', 'Alias', 'Address', 'Phone', 'X', 'Y'])
-                
                 # Save people
                 for person_id, person in self.people.items():
                     writer.writerow([person_id, person.name, person.dob, person.alias, 
                                    person.address, person.phone, person.x, person.y])
-                    
                 writer.writerow(['CONNECTIONS'])
                 writer.writerow(['From_ID', 'To_ID', 'Label'])
-                
                 # Save connections
                 saved = set()
                 for id1, person in self.people.items():
@@ -975,8 +1032,6 @@ class ConnectionApp:
                         if key not in saved:
                             writer.writerow([id1, id2, label])
                             saved.add(key)
-                            
-
             messagebox.showinfo("Success", "Data saved successfully!")
             
     def load_data(self):
@@ -1135,6 +1190,30 @@ class ConnectionApp:
             self.update_connections()
             self.update_status(f"✏️ Connection label updated: {dialog.result}")
     
+    # --- Zoom and Pan Handlers ---
+    def on_canvas_zoom(self, event):
+        # Zoom in/out with scroll wheel, centered on mouse pointer
+        scale = 1.1 if event.delta > 0 else 0.9
+        x = self.canvas.canvasx(event.x)
+        y = self.canvas.canvasy(event.y)
+        self.canvas.scale("all", x, y, scale, scale)
+        # Optional: adjust scroll region if using scrolling
+        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+
+    def on_middle_button_press(self, event):
+        logger.info(f"Middle mouse button pressed at ({event.x}, {event.y})")
+        self.canvas.scan_mark(event.x, event.y)
+        self._panning = True
+
+    def on_middle_button_motion(self, event):
+        if hasattr(self, '_panning') and self._panning:
+            logger.info(f"Middle mouse button drag to ({event.x}, {event.y})")
+            self.canvas.scan_dragto(event.x, event.y, gain=1)
+
+    def on_middle_button_release(self, event):
+        logger.info(f"Middle mouse button released at ({event.x}, {event.y})")
+        self._panning = False
+
 if __name__ == "__main__":
     logger.info("Starting application")
     root = tk.Tk()
