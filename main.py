@@ -7,38 +7,15 @@ import os
 from collections import defaultdict
 import logging
 
+# Import from supporting modules
+from constants import COLORS
+from models import Person
+from dialogs import PersonDialog, ConnectionLabelDialog
+
 # Set up logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-# Modern color scheme
-COLORS = {
-    'primary': '#2563eb',      # Modern blue
-    'primary_light': '#60a5fa',
-    'primary_dark': '#1d4ed8',
-    'secondary': '#10b981',    # Modern green
-    'secondary_light': '#34d399',
-    'accent': '#f59e0b',       # Amber
-    'background': '#f8fafc',   # Light gray
-    'surface': '#ffffff',      # White
-    'text_primary': '#1e293b', # Dark slate
-    'text_secondary': '#64748b', # Slate
-    'border': '#e2e8f0',       # Light border
-    'hover': '#f1f5f9',        # Light hover
-    'danger': '#ef4444',       # Red
-    'success': '#22c55e'       # Green
-}
-
-class Person:
-    def __init__(self, name, dob="", alias="", address="", phone=""):
-        self.name = name
-        self.dob = dob
-        self.alias = alias
-        self.address = address
-        self.phone = phone
-        self.x = 0
-        self.y = 0
-        self.connections = {}  # {person_id: label}        
 class ConnectionApp:
     def __init__(self, root):
         logger.info("Initializing ConnectionApp")
@@ -137,7 +114,8 @@ class ConnectionApp:
         
         # Add subtle grid pattern to canvas
         self.add_grid_pattern()
-          # Bind events        self.canvas.bind("<Button-1>", self.on_canvas_click)
+          # Bind events
+        self.canvas.bind("<Button-1>", self.on_canvas_click)
         self.canvas.bind("<B1-Motion>", self.on_canvas_drag)
         self.canvas.bind("<ButtonRelease-1>", self.on_canvas_release)
         self.canvas.bind("<Button-3>", self.on_right_click)
@@ -516,7 +494,8 @@ class ConnectionApp:
                                 if text_content == person.name or text_content == "👤":
                                     # Keep white for header text
                                     pass
-                                else:                                    # Restore primary color for body text
+                                else:
+                                    # Restore primary color for body text
                                     self.canvas.itemconfig(item, fill=COLORS['text_primary'])
                 except:
                     pass
@@ -530,10 +509,10 @@ class ConnectionApp:
         clicked = items[0]
         tags = self.canvas.gettags(clicked)
         
-        # Check for person first (priority for dragging)
+        # Clear previous selections
+        self.clear_connection_selection()
+        
         if any("person" in tag for tag in tags):
-            # Clear connection selection when clicking on person
-            self.clear_connection_selection()
             # Get person ID from tags
             for tag in tags:
                 if tag.startswith("person_"):
@@ -543,12 +522,9 @@ class ConnectionApp:
                     self.dragging = True
                     break
         elif any("connection_" in tag for tag in tags):
-            # Only handle connection selection if not clicking on a person
             # Check if this is a connection label or clickable area
             for tag in tags:
                 if tag.startswith("connection_label_") or tag.startswith("connection_clickable_"):
-                    # Clear any existing connection selection first
-                    self.clear_connection_selection()
                     # Extract connection IDs from tag
                     parts = tag.split("_")
                     if len(parts) >= 4:
@@ -557,9 +533,6 @@ class ConnectionApp:
                         self.highlight_connection_selection()
                         self.canvas.focus_set()  # Allow keyboard events
                         break
-        else:
-            # Clicked on empty space - clear all selections
-            self.clear_connection_selection()
                     
     def on_canvas_drag(self, event):
         if self.dragging and self.selected_person:
@@ -652,38 +625,43 @@ class ConnectionApp:
         tolerance = 10  # Larger tolerance for right-clicks
         items = self.canvas.find_overlapping(event.x - tolerance, event.y - tolerance, 
                                            event.x + tolerance, event.y + tolerance)
-        
+        logger.debug(f"Right-click at ({event.x}, {event.y}), found items: {items}")
         # Find the person that was clicked
         person_id = None
         for item in items:
             tags = self.canvas.gettags(item)
+            logger.debug(f"Item {item} tags: {tags}")
             if any("person" in tag for tag in tags):
                 for tag in tags:
                     if tag.startswith("person_"):
                         person_id = int(tag.split("_")[1])
+                        logger.debug(f"Detected person_id {person_id} from tag {tag}")
                         break
                 if person_id is not None:
                     break
-        
         if person_id is None:
+            logger.info("Right-click not on a person, cancelling connection if active.")
             # Not clicking on a person, cancel connection
             self.cancel_connection()
             return
-        
+        logger.info(f"Right-clicked person: {person_id} ({self.people[person_id].name})")
         # Handle the right-click on a person
         if not self.connecting:
+            logger.info(f"No active connection. Starting new connection from {person_id} ({self.people[person_id].name})")
             # Start a new connection
             self.start_connection(person_id, event.x, event.y)
         elif self.connection_start == person_id:
+            logger.info(f"Right-clicked the same person ({person_id}). Cancelling connection.")
             # Right-clicking on the same person cancels the connection
             self.cancel_connection()
         else:
+            logger.info(f"Completing connection: {self.connection_start} ({self.people[self.connection_start].name}) -> {person_id} ({self.people[person_id].name})")
             # Right-clicking on a different person completes the connection
             self.complete_connection(person_id)
     
     def start_connection(self, person_id, x, y):
         """Start a new connection from the given person"""
-        logger.info(f"Starting connection from person {person_id}")
+        logger.info(f"[LINK] Starting connection from person {person_id} ({self.people[person_id].name}) at ({x}, {y})")
         self.connecting = True
         self.connection_start = person_id
         
@@ -703,9 +681,9 @@ class ConnectionApp:
     def complete_connection(self, target_id):
         """Complete the connection to the target person"""
         if not self.connecting or not self.connection_start:
+            logger.warning("[LINK] Attempted to complete connection with no active start.")
             return
-            
-        logger.info(f"Completing connection from {self.connection_start} to {target_id}")
+        logger.info(f"[LINK] Completing connection from {self.connection_start} ({self.people[self.connection_start].name}) to {target_id} ({self.people[target_id].name})")
         
         # Store the names before cleaning up
         from_name = self.people[self.connection_start].name
@@ -723,33 +701,35 @@ class ConnectionApp:
     def cancel_connection(self):
         """Cancel any active connection"""
         if self.connecting and self.connection_start:
-            logger.info(f"Cancelling connection from person {self.connection_start}")
+            logger.info(f"[LINK] Cancelling connection from person {self.connection_start} ({self.people[self.connection_start].name})")
             self.unhighlight_person_for_connection(self.connection_start)
             self.update_status("Connection cancelled")
-        
+        else:
+            logger.info("[LINK] No active connection to cancel.")
         self.connecting = False
         self.connection_start = None
         
         if self.temp_line:
             self.canvas.delete(self.temp_line)
             self.temp_line = None
-                
+    
     def create_connection(self, id1, id2):
         # Check if connection already exists
         if id2 in self.people[id1].connections:
+            logger.warning(f"[LINK] Connection already exists between {id1} ({self.people[id1].name}) and {id2} ({self.people[id2].name}). Aborting.")
             return
-            
+        logger.info(f"[LINK] Creating connection from {id1} ({self.people[id1].name}) to {id2} ({self.people[id2].name})")
         # Ask for label using modern dialog
         dialog = ConnectionLabelDialog(self.root, "Add Connection")
+        dialog.dialog.wait_window()  # Wait for dialog to close
         if dialog.result is None:
+            logger.info(f"[LINK] Connection label dialog cancelled for {id1} -> {id2}")
             return
-            
         label = dialog.result
-        
+        logger.info(f"[LINK] Assigned label '{label}' to connection {id1} ({self.people[id1].name}) <-> {id2} ({self.people[id2].name})")
         # Add to data structure
         self.people[id1].connections[id2] = label
         self.people[id2].connections[id1] = label
-        
         # Draw line
         self.draw_connection(id1, id2, label)
         
@@ -1003,23 +983,23 @@ class ConnectionApp:
         filename = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv")])
         if filename:
             self.clear_all()
-            
             with open(filename, 'r') as f:
                 reader = csv.reader(f)
                 header = next(reader)
-                
                 connections_section = False
                 for row in reader:
                     if row and row[0] == 'CONNECTIONS':
                         connections_section = True
                         next(reader)  # Skip connection header
                         continue
-                        
                     if connections_section:
                         if len(row) >= 3:
                             id1, id2, label = int(row[0]), int(row[1]), row[2]
-                            self.people[id1].connections[id2] = label
-                            self.people[id2].connections[id1] = label
+                            if id1 in self.people and id2 in self.people:
+                                self.people[id1].connections[id2] = label
+                                self.people[id2].connections[id1] = label
+                            else:
+                                logger.warning(f"Connection references missing person: {id1} or {id2}")
                     else:
                         if len(row) >= 8:
                             person_id = int(row[0])
@@ -1027,9 +1007,9 @@ class ConnectionApp:
                             person.x = float(row[6])
                             person.y = float(row[7])
                             self.people[person_id] = person
-                            self.next_id = max(self.next_id, person_id + 1)            
-            self.redraw_all()
-            messagebox.showinfo("Success", "Data loaded successfully!")
+                            self.next_id = max(self.next_id, person_id + 1)
+                self.redraw_all()
+                messagebox.showinfo("Success", "Data loaded successfully!")
             
     def clear_all(self):
         self.canvas.delete("all")
@@ -1131,306 +1111,30 @@ class ConnectionApp:
         
         self.selected_connection = None
         self.update_status("Connection deleted")
-    
+        
     def edit_connection_label(self):
         """Edit the label of the selected connection"""
         if not self.selected_connection:
             return
-            
         id1, id2 = self.selected_connection
+        # Get current label
         current_label = self.people[id1].connections.get(id2, "")
-        
-        # Use modern dialog for editing
-        dialog = ConnectionLabelDialog(self.root, "Edit Connection", current_label)
-        if dialog.result is None:
-            return
-            
-        new_label = dialog.result
-        
-        # Update data structure
-        self.people[id1].connections[id2] = new_label  
-        self.people[id2].connections[id1] = new_label
-        
-        # Remove old connection visuals
-        if self.selected_connection in self.connection_lines:
-            elements = self.connection_lines[self.selected_connection]
-            for element in elements:
-                self.canvas.delete(element)
-            del self.connection_lines[self.selected_connection]
-        
-        # Redraw with new label
-        self.draw_connection(id1, id2, new_label)
-        self.selected_connection = (min(id1, id2), max(id1, id2))
-        self.highlight_connection_selection()
-        
-        self.update_status(f"Connection label updated to '{new_label}'")
+        dialog = ConnectionLabelDialog(self.root, "Edit Connection Label", current_label=current_label)
+        dialog.dialog.wait_window()
+        if dialog.result is not None:
+            # Update label in data structure
+            self.people[id1].connections[id2] = dialog.result
+            self.people[id2].connections[id1] = dialog.result
+            # Update the label text on the canvas immediately
+            key = (min(id1, id2), max(id1, id2))
+            elements = self.connection_lines.get(key)
+            if elements and len(elements) >= 7:
+                label_text = elements[5]
+                self.canvas.itemconfig(label_text, text=dialog.result)
+            # Redraw the connection (for size/position)
+            self.update_connections()
+            self.update_status(f"✏️ Connection label updated: {dialog.result}")
     
-class PersonDialog:
-    def __init__(self, parent, title, **kwargs):
-        logger.info(f"Opening modern PersonDialog: {title}")
-        self.result = None
-        self.dialog = tk.Toplevel(parent)
-        self.dialog.title(f"✏️ {title}")
-        self.dialog.geometry("450x800")
-        self.dialog.configure(bg=COLORS['background'])
-        self.dialog.transient(parent)
-        self.dialog.grab_set()
-        self.dialog.resizable(False, False)
-        
-        # Center the dialog
-        self.dialog.update_idletasks()
-        x = (self.dialog.winfo_screenwidth() // 2) - (450 // 2)
-        y = (self.dialog.winfo_screenheight() // 2) - (800 // 2)
-        self.dialog.geometry(f"450x800+{x}+{y}")
-        
-        logger.info("Modern PersonDialog window created")
-          # Main container
-        main_frame = tk.Frame(self.dialog, bg=COLORS['background'])
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=25, pady=25)
-        
-        # Title
-        title_label = tk.Label(main_frame, 
-                              text=title,
-                              font=("Segoe UI", 18, "bold"),
-                              fg=COLORS['primary'],
-                              bg=COLORS['background'])
-        title_label.pack(pady=(0, 25))
-        
-        # Form container
-        form_frame = tk.Frame(main_frame, bg=COLORS['surface'], relief=tk.FLAT, bd=0)
-        form_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 25))
-        
-        # Add padding inside form
-        form_inner = tk.Frame(form_frame, bg=COLORS['surface'])
-        form_inner.pack(fill=tk.BOTH, expand=True, padx=25, pady=25)
-        
-        # Fields with modern styling
-        fields = [
-            ("👤 Full Name:", "name", True),
-            ("🎂 Date of Birth:", "dob", False),
-            ("🏷️ Alias/Nickname:", "alias", False),
-            ("🏠 Address:", "address", False),
-            ("📞 Phone Number:", "phone", False)
-        ]
-        
-        self.entries = {}
-        for i, (label, field, required) in enumerate(fields):            # Label
-            label_text = label
-            if required:
-                label_text += " *"
-            
-            field_label = tk.Label(form_inner, 
-                                  text=label_text,
-                                  font=("Segoe UI", 11, "bold" if required else "normal"),
-                                  fg=COLORS['text_primary'],
-                                  bg=COLORS['surface'],
-                                  anchor="w")
-            field_label.grid(row=i*2, column=0, sticky="w", pady=(15 if i > 0 else 0, 8))
-            
-            # Entry with modern styling
-            entry = tk.Entry(form_inner, 
-                           font=("Segoe UI", 12),
-                           bg='white',
-                           fg=COLORS['text_primary'],
-                           relief=tk.FLAT,
-                           bd=8,
-                           highlightthickness=2,
-                           highlightcolor=COLORS['primary'],
-                           highlightbackground=COLORS['border'],
-                           width=35)
-            entry.grid(row=i*2+1, column=0, sticky="ew", pady=(0, 10))
-            
-            if field in kwargs:
-                entry.insert(0, kwargs[field])
-            
-            self.entries[field] = entry
-        
-        # Configure grid weights
-        form_inner.columnconfigure(0, weight=1)
-          # Required field note
-        note_label = tk.Label(form_inner,
-                             text="* Required fields",
-                             font=("Segoe UI", 9),
-                             fg=COLORS['text_secondary'],
-                             bg=COLORS['surface'])
-        note_label.grid(row=len(fields)*2, column=0, sticky="w", pady=(15, 0))
-        
-        # Button frame
-        button_frame = tk.Frame(main_frame, bg=COLORS['background'])
-        button_frame.pack(fill=tk.X, pady=(10, 0))
-        
-        # Modern buttons
-        cancel_btn = tk.Button(button_frame,
-                              text="Cancel",
-                              command=self.cancel,
-                              font=("Segoe UI", 10),
-                              bg=COLORS['text_secondary'],
-                              fg='white',
-                              relief=tk.FLAT,
-                              padx=20,
-                              pady=8,
-                              cursor='hand2')
-        cancel_btn.pack(side=tk.RIGHT, padx=(10, 0))
-        
-        ok_btn = tk.Button(button_frame,
-                          text="Save",
-                          command=self.ok,
-                          font=("Segoe UI", 10, "bold"),
-                          bg=COLORS['primary'],
-                          fg='white',
-                          relief=tk.FLAT,
-                          padx=20,
-                          pady=8,
-                          cursor='hand2')
-        ok_btn.pack(side=tk.RIGHT)
-        
-        # Add hover effects to buttons
-        def on_ok_enter(e):
-            ok_btn.configure(bg=COLORS['primary_dark'])
-        def on_ok_leave(e):
-            ok_btn.configure(bg=COLORS['primary'])
-        def on_cancel_enter(e):
-            cancel_btn.configure(bg='#475569')
-        def on_cancel_leave(e):
-            cancel_btn.configure(bg=COLORS['text_secondary'])
-        
-        ok_btn.bind("<Enter>", on_ok_enter)
-        ok_btn.bind("<Leave>", on_ok_leave)
-        cancel_btn.bind("<Enter>", on_cancel_enter)
-        cancel_btn.bind("<Leave>", on_cancel_leave)
-        
-        # Focus on name entry
-        self.entries["name"].focus()
-        
-        # Bind Enter key to OK
-        self.dialog.bind('<Return>', lambda e: self.ok())
-        self.dialog.bind('<Escape>', lambda e: self.cancel())
-        
-    def ok(self):
-        logger.info("Modern PersonDialog OK button clicked")
-        # Validate name is not empty
-        if not self.entries["name"].get().strip():
-            logger.warning("Name field is empty")
-            tk.messagebox.showerror("Error", "Name is required!", parent=self.dialog)
-            return
-            
-        self.result = {field: entry.get().strip() for field, entry in self.entries.items()}
-        logger.info(f"Modern PersonDialog result: {self.result}")
-        self.dialog.destroy()
-        
-    def cancel(self):
-        logger.info("Modern PersonDialog cancelled")
-        self.dialog.destroy()
-
-class ConnectionLabelDialog:
-    def __init__(self, parent, title, current_label=""):
-        self.result = None
-        self.dialog = tk.Toplevel(parent)
-        self.dialog.title(f"🔗 {title}")
-        self.dialog.geometry("400x300")
-        self.dialog.configure(bg=COLORS['background'])
-        self.dialog.transient(parent)
-        self.dialog.grab_set()
-        self.dialog.resizable(False, False)
-        
-        # Center the dialog
-        self.dialog.update_idletasks()
-        x = (self.dialog.winfo_screenwidth() // 2) - (400 // 2)
-        y = (self.dialog.winfo_screenheight() // 2) - (300 // 2)
-        self.dialog.geometry(f"400x300+{x}+{y}")
-        
-        # Main container
-        main_frame = tk.Frame(self.dialog, bg=COLORS['background'])
-        main_frame.pack(fill=tk.BOTH, expand=True, padx=25, pady=25)
-        
-        # Title
-        title_label = tk.Label(main_frame, 
-                              text=title,
-                              font=("Segoe UI", 16, "bold"),
-                              bg=COLORS['background'],
-                              fg=COLORS['text_primary'])
-        title_label.pack(pady=(0, 20))
-        
-        # Connection label input
-        input_frame = tk.Frame(main_frame, bg=COLORS['background'])
-        input_frame.pack(fill=tk.X, pady=(0, 20))
-        
-        label_text = tk.Label(input_frame,
-                             text="Connection Label:",
-                             font=("Segoe UI", 12, "bold"),
-                             bg=COLORS['background'],
-                             fg=COLORS['text_primary'])
-        label_text.pack(anchor=tk.W, pady=(0, 8))
-        
-        # Modern entry with border
-        entry_container = tk.Frame(input_frame, bg=COLORS['border'], relief=tk.SOLID, bd=1)
-        entry_container.pack(fill=tk.X, pady=(0, 5))
-        
-        self.label_entry = tk.Entry(entry_container,
-                                   font=("Segoe UI", 12),
-                                   bg=COLORS['surface'],
-                                   fg=COLORS['text_primary'],
-                                   relief=tk.FLAT,
-                                   bd=0)
-        self.label_entry.pack(fill=tk.BOTH, padx=2, pady=2)
-        self.label_entry.insert(0, current_label)
-        self.label_entry.focus()
-        self.label_entry.select_range(0, tk.END)
-        
-        # Instructions
-        instruction_label = tk.Label(input_frame,
-                                   text="Enter a descriptive label for this connection\n(e.g., 'friend', 'dealer', 'family member')",
-                                   font=("Segoe UI", 9),
-                                   bg=COLORS['background'],
-                                   fg=COLORS['text_secondary'],
-                                   justify=tk.LEFT)
-        instruction_label.pack(anchor=tk.W, pady=(5, 0))
-        
-        # Button frame
-        button_frame = tk.Frame(main_frame, bg=COLORS['background'])
-        button_frame.pack(fill=tk.X, pady=(20, 0))
-        
-        # Cancel button
-        cancel_btn = tk.Button(button_frame,
-                              text="Cancel",
-                              font=("Segoe UI", 11, "bold"),
-                              bg=COLORS['text_secondary'],
-                              fg='white',
-                              relief=tk.FLAT,
-                              padx=20,
-                              pady=8,
-                              command=self.cancel,
-                              cursor='hand2')
-        cancel_btn.pack(side=tk.RIGHT, padx=(10, 0))
-        
-        # OK button
-        ok_btn = tk.Button(button_frame,
-                          text="Save",
-                          font=("Segoe UI", 11, "bold"),
-                          bg=COLORS['primary'],
-                          fg='white',
-                          relief=tk.FLAT,
-                          padx=20,
-                          pady=8,
-                          command=self.ok,
-                          cursor='hand2')
-        ok_btn.pack(side=tk.RIGHT)
-        
-        # Key bindings
-        self.dialog.bind('<Return>', lambda e: self.ok())
-        self.dialog.bind('<Escape>', lambda e: self.cancel())
-        
-    def ok(self):
-        label = self.label_entry.get().strip()
-        if not label:
-            tk.messagebox.showerror("Error", "Connection label cannot be empty!", parent=self.dialog)
-            return
-        self.result = label
-        self.dialog.destroy()
-        
-    def cancel(self):
-        self.dialog.destroy()
-        
 if __name__ == "__main__":
     logger.info("Starting application")
     root = tk.Tk()
