@@ -25,8 +25,7 @@ class ConnectionApp:
         self.root.configure(bg=COLORS['background'])
         
         # Configure modern styling
-        self.setup_styles()
-          # Data structures
+        self.setup_styles()        # Data structures
         self.people = {}  # {id: Person}
         self.person_widgets = {}  # {id: canvas_item_id}
         self.connection_lines = {}  # {(id1, id2): (line_id, label_id)}
@@ -113,8 +112,7 @@ class ConnectionApp:
         self.canvas.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
         
         # Add subtle grid pattern to canvas
-        self.add_grid_pattern()
-          # Bind events
+        self.add_grid_pattern()        # Bind events
         self.canvas.bind("<Button-1>", self.on_canvas_click)
         self.canvas.bind("<B1-Motion>", self.on_canvas_drag)
         self.canvas.bind("<ButtonRelease-1>", self.on_canvas_release)
@@ -124,6 +122,8 @@ class ConnectionApp:
         self.canvas.bind("<Button-2>", self.on_middle_button_press)
         self.canvas.bind("<B2-Motion>", self.on_middle_button_motion)
         self.canvas.bind("<ButtonRelease-2>", self.on_middle_button_release)
+        # Add mouse wheel zoom support
+        self.canvas.bind("<MouseWheel>", self.on_canvas_zoom)
           # Make canvas focusable and bind keys
         self.canvas.configure(highlightthickness=1, highlightcolor=COLORS['primary'])
         self.canvas.bind("<Key-Escape>", self.on_escape_key)
@@ -604,8 +604,7 @@ class ConnectionApp:
             self.selected_person = selected_person_id
             self.drag_data = {"x": event.x, "y": event.y}
             self.dragging = True
-        else:
-            # Check for connection selection as before
+        else:            # Check for connection selection as before
             for item in items:
                 tags = self.canvas.gettags(item)
                 if any("connection_" in tag for tag in tags):
@@ -619,7 +618,7 @@ class ConnectionApp:
                                 self.canvas.focus_set()
                                 break
                     break
-    
+
     def on_canvas_drag(self, event):
         if self.dragging and self.selected_person:
             zoom = self._last_zoom if hasattr(self, '_last_zoom') else 1.0
@@ -630,14 +629,13 @@ class ConnectionApp:
             logger.debug(f"[DRAG] Zoom: {zoom:.3f}, Mouse: ({event.x}, {event.y}), "
                          f"Screen Δ: ({dx_screen}, {dy_screen}), World Δ: ({dx_world:.2f}, {dy_world:.2f})")
 
-            # Move person widget visually (scaled)
-            for item in self.person_widgets[self.selected_person]:
-                self.canvas.move(item, dx_screen, dy_screen)
-
             # Update logical (unscaled) position using world delta
             self.people[self.selected_person].x += dx_world
             self.people[self.selected_person].y += dy_world
             logger.debug(f"[DRAG] Updated logical position: ({self.people[self.selected_person].x}, {self.people[self.selected_person].y})")
+
+            # Instead of moving items visually, refresh the person widget to ensure correct positioning
+            self.refresh_person_widget(self.selected_person)
 
             # Update connections immediately
             self.update_connections()
@@ -697,13 +695,18 @@ class ConnectionApp:
         else:
             if hasattr(self, 'current_hover'):
                 self.remove_hover_from_person(self.current_hover)
-                delattr(self, 'current_hover')
-        
-        # Update temp line if connecting - make it more responsive
+                delattr(self, 'current_hover')        # Update temp line if connecting - make it more responsive
         if self.connecting and self.temp_line and self.connection_start:
             p = self.people[self.connection_start]
+            # Get the current zoom level
+            zoom = self._last_zoom if hasattr(self, '_last_zoom') else 1.0
             # Update the temporary line to follow the mouse smoothly
-            self.canvas.coords(self.temp_line, p.x, p.y, event.x, event.y)
+            # The person position needs to be scaled by zoom factor
+            start_x, start_y = p.x * zoom, p.y * zoom
+            # Convert mouse coordinates to canvas coordinates to handle panning
+            canvas_x = self.canvas.canvasx(event.x)
+            canvas_y = self.canvas.canvasy(event.y)
+            self.canvas.coords(self.temp_line, start_x, start_y, canvas_x, canvas_y)
               # Change line color based on what we're hovering over
             if person_id is not None and person_id != self.connection_start:
                 # Hovering over a different person - show ready to connect
@@ -758,13 +761,17 @@ class ConnectionApp:
         self.connection_start = person_id
         
         # Highlight the selected person
-        self.highlight_person_for_connection(person_id)
-        
-        # Show temporary line
+        self.highlight_person_for_connection(person_id)        # Show temporary line
         p = self.people[person_id]
+        zoom = self._last_zoom if hasattr(self, '_last_zoom') else 1.0
         if self.temp_line:
             self.canvas.delete(self.temp_line)
-        self.temp_line = self.canvas.create_line(p.x, p.y, x, y, 
+        # Use scaled coordinates for the temp line
+        start_x, start_y = p.x * zoom, p.y * zoom
+        # Convert mouse coordinates to canvas coordinates to handle panning
+        canvas_x = self.canvas.canvasx(x)
+        canvas_y = self.canvas.canvasy(y)
+        self.temp_line = self.canvas.create_line(start_x, start_y, canvas_x, canvas_y, 
                                                fill=COLORS['accent'], dash=(8, 4), width=3,
                                                tags=("temp_connection",))
           # Update status
@@ -1191,13 +1198,23 @@ class ConnectionApp:
             self.update_status(f"✏️ Connection label updated: {dialog.result}")
     
     # --- Zoom and Pan Handlers ---
+    
     def on_canvas_zoom(self, event):
         # Zoom in/out with scroll wheel, centered on mouse pointer
         scale = 1.1 if event.delta > 0 else 0.9
         x = self.canvas.canvasx(event.x)
         y = self.canvas.canvasy(event.y)
         self.canvas.scale("all", x, y, scale, scale)
-        # Optional: adjust scroll region if using scrolling
+        
+        # Update the _last_zoom variable to maintain consistency with the slider
+        if hasattr(self, '_last_zoom'):
+            self._last_zoom *= scale
+        else:
+            self._last_zoom = scale
+              # Update the zoom slider to reflect the new zoom level
+        self.zoom_var.set(self._last_zoom)
+        
+        # Update scroll region to accommodate new zoom level
         self.canvas.configure(scrollregion=self.canvas.bbox("all"))
 
     def on_middle_button_press(self, event):
@@ -1208,6 +1225,8 @@ class ConnectionApp:
     def on_middle_button_motion(self, event):
         if hasattr(self, '_panning') and self._panning:
             logger.info(f"Middle mouse button drag to ({event.x}, {event.y})")
+            # Use gain=1 since we're not dealing with zoom scaling issues anymore
+            # The zoom scaling is applied to the canvas items, not the scroll region
             self.canvas.scan_dragto(event.x, event.y, gain=1)
 
     def on_middle_button_release(self, event):
