@@ -566,8 +566,7 @@ class ConnectionApp:
                                 # Get the text content to identify header vs body text
                                 text_content = self.canvas.itemcget(item, 'text')
                                 person = self.people[person_id]
-                                
-                                # Only header text (person name and avatar icon) should stay white
+                                  # Only header text (person name and avatar icon) should stay white
                                 # Body text (birthday, alias, address, phone) should be restored to primary color
                                 if text_content == person.name or text_content == "👤":
                                     # Keep white for header text
@@ -579,8 +578,11 @@ class ConnectionApp:
                     pass
             
     def on_canvas_click(self, event):
-        # Improved hit detection: find all items under the cursor
+        # Account for zoom in hit detection
+        zoom = self._last_zoom if hasattr(self, '_last_zoom') else 1.0
         tolerance = 3  # Small area around the cursor
+        
+        # Use canvas coordinates directly for hit detection
         items = self.canvas.find_overlapping(event.x - tolerance, event.y - tolerance, event.x + tolerance, event.y + tolerance)
         if not items:
             return
@@ -601,10 +603,15 @@ class ConnectionApp:
                     break
         
         if selected_person_id is not None:
+            # Normalize all widgets to current zoom level before starting drag
+            # This ensures consistent interaction regardless of how zoom was applied
+            self.normalize_all_widgets_to_current_zoom()
+            
             self.selected_person = selected_person_id
             self.drag_data = {"x": event.x, "y": event.y}
             self.dragging = True
-        else:            # Check for connection selection as before
+        else:
+            # Check for connection selection as before
             for item in items:
                 tags = self.canvas.gettags(item)
                 if any("connection_" in tag for tag in tags):
@@ -622,10 +629,15 @@ class ConnectionApp:
     def on_canvas_drag(self, event):
         if self.dragging and self.selected_person:
             zoom = self._last_zoom if hasattr(self, '_last_zoom') else 1.0
+            
+            # Calculate the movement delta in screen coordinates
             dx_screen = event.x - self.drag_data["x"]
             dy_screen = event.y - self.drag_data["y"]
+            
+            # Convert screen delta to world delta (compensate for zoom)
             dx_world = dx_screen / zoom
             dy_world = dy_screen / zoom
+            
             logger.debug(f"[DRAG] Zoom: {zoom:.3f}, Mouse: ({event.x}, {event.y}), "
                          f"Screen Δ: ({dx_screen}, {dy_screen}), World Δ: ({dx_world:.2f}, {dy_world:.2f})")
 
@@ -634,14 +646,20 @@ class ConnectionApp:
             self.people[self.selected_person].y += dy_world
             logger.debug(f"[DRAG] Updated logical position: ({self.people[self.selected_person].x}, {self.people[self.selected_person].y})")
 
-            # Instead of moving items visually, refresh the person widget to ensure correct positioning
-            self.refresh_person_widget(self.selected_person)
+            # Move existing canvas items directly during drag (much more efficient)
+            person_items = self.person_widgets[self.selected_person]
+            for item in person_items:
+                self.canvas.move(item, dx_screen, dy_screen)
 
-            # Update connections immediately
-            self.update_connections()
-
+            # Update connections immediately (but efficiently)
+            self.update_connections()            # Update drag data for next movement
             self.drag_data = {"x": event.x, "y": event.y}
+
     def on_canvas_release(self, event):
+        if self.dragging and self.selected_person:
+            # After dragging is complete, refresh the widget to ensure correct positioning
+            # This normalizes the widget to the correct zoom level
+            self.refresh_person_widget(self.selected_person)
         self.dragging = False
     
     def on_double_click(self, event):
@@ -701,7 +719,7 @@ class ConnectionApp:
             # Get the current zoom level
             zoom = self._last_zoom if hasattr(self, '_last_zoom') else 1.0
             # Update the temporary line to follow the mouse smoothly
-            # The person position needs to be scaled by zoom factor
+            # The person position needs to be scaled to zoom factor
             start_x, start_y = p.x * zoom, p.y * zoom
             # Convert mouse coordinates to canvas coordinates to handle panning
             canvas_x = self.canvas.canvasx(event.x)
@@ -1015,8 +1033,7 @@ class ConnectionApp:
                 if id1 < id2:  # Avoid duplicates
                     self.draw_connection(id1, id2, label, zoom=zoom)
         # Redraw people
-        for person_id in self.people:
-            self.create_person_widget(person_id, zoom=zoom)
+        for person_id in self.people:            self.create_person_widget(person_id, zoom=zoom)
 
     def save_data(self):
         filename = filedialog.asksaveasfilename(defaultextension=".csv",
@@ -1197,6 +1214,21 @@ class ConnectionApp:
             self.update_connections()
             self.update_status(f"✏️ Connection label updated: {dialog.result}")
     
+    def normalize_all_widgets_to_current_zoom(self):
+        """Ensure all person widgets are at the correct zoom level for consistent interaction"""
+        if not hasattr(self, '_last_zoom'):
+            return
+            
+        # Recreate all person widgets at the current zoom level
+        for person_id in list(self.people.keys()):
+            self.refresh_person_widget(person_id)
+        
+        # Recreate all connections at the current zoom level
+        self.update_connections()
+        
+        # Redraw grid at current zoom
+        self.redraw_grid()
+
     # --- Zoom and Pan Handlers ---
     
     def on_canvas_zoom(self, event):
