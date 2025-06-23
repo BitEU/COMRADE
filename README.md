@@ -110,6 +110,7 @@ python main.py
 - **Double-click** on a person card to edit their information
 - **Double-click** on a connection label to edit the relationship description
 - Use the **Delete** key to remove selected connections
+- Press **c** to change the color of a person card
 
 ### Navigation Controls
 
