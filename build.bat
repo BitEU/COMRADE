@@ -1,0 +1,1 @@
+python -m PyInstaller --onefile --windowed --icon=group.ico --hidden-import="tkinterdnd2" --hidden-import="models" --hidden-import="dialogs" --hidden-import="constants" main.py
