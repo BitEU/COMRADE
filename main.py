@@ -15,7 +15,7 @@ except ImportError:
     PIL_AVAILABLE = False
 
 # Import from supporting modules
-from constants import COLORS
+from constants import COLORS, CARD_COLORS
 from models import Person
 from dialogs import PersonDialog, ConnectionLabelDialog
 
@@ -136,15 +136,16 @@ class ConnectionApp:
         self.canvas.bind("<B2-Motion>", self.on_middle_button_motion)
         self.canvas.bind("<ButtonRelease-2>", self.on_middle_button_release)
         # Add mouse wheel zoom support
-        self.canvas.bind("<MouseWheel>", self.on_canvas_zoom)
-          # Make canvas focusable and bind keys
+        self.canvas.bind("<MouseWheel>", self.on_canvas_zoom)        # Make canvas focusable and bind keys
         self.canvas.configure(highlightthickness=1, highlightcolor=COLORS['primary'])
         self.canvas.bind("<Key-Escape>", self.on_escape_key)
         self.canvas.bind("<Key-Delete>", self.on_delete_key)
         self.canvas.bind("<Key-BackSpace>", self.on_delete_key)  # Also bind backspace
+        self.canvas.bind("<Key-c>", self.on_color_cycle_key)  # Color cycling
         self.root.bind("<Key-Escape>", self.on_escape_key)  # Also bind to root for global access
         self.root.bind("<Key-Delete>", self.on_delete_key)
         self.root.bind("<Key-BackSpace>", self.on_delete_key)
+        self.root.bind("<Key-c>", self.on_color_cycle_key)
           # Modern instructions panel
         self.create_instructions_panel(main_container)
         
@@ -302,12 +303,13 @@ class ConnectionApp:
     def create_instructions_panel(self, parent):
         """Create a modern instructions panel"""
         instructions_frame = ttk.Frame(parent, style="Modern.TFrame")
-        instructions_frame.pack(fill=tk.X, pady=(10, 0))
-          # Instructions with modern styling
+        instructions_frame.pack(fill=tk.X, pady=(10, 0))        # Instructions with modern styling
         instructions = [
             "🖱️ Left-click to select and move people",
-            "� Right-click to link: first person, then target", 
-            "✏️ Double-click on a person to edit their information",            "⌨️ Press Escape to cancel an active connection"
+            "🔗 Right-click to link: first person, then target", 
+            "✏️ Double-click on a person to edit their information",
+            "⌨️ Press 'C' to cycle selected person's color",
+            "🚫 Press Escape to cancel an active connection"
         ]
         
         for i, instruction in enumerate(instructions):
@@ -397,13 +399,15 @@ class ConnectionApp:
                 tags=(f"person_{person_id}", "person", "shadow")
             )
             group.append(shadow)
+          # Get person's color
+        person_color = CARD_COLORS[person.color % len(CARD_COLORS)]
         
         # Main card background with gradient effect
         main_card = self.canvas.create_rectangle(
             x - half_width, y - half_height,
             x + half_width, y + half_height,
             fill=COLORS['surface'], 
-            outline=COLORS['primary'], 
+            outline=person_color, 
             width=2,
             tags=(f"person_{person_id}", "person")
         )
@@ -414,7 +418,7 @@ class ConnectionApp:
         header = self.canvas.create_rectangle(
             x - half_width, y - half_height,
             x + half_width, y - half_height + header_height,
-            fill=COLORS['primary'], outline='', width=0,
+            fill=person_color, outline='', width=0,
             tags=(f"person_{person_id}", "person")
         )
         group.append(header)
@@ -423,19 +427,18 @@ class ConnectionApp:
         avatar_size = int(20 * zoom)
         avatar_x = x - half_width + int(15 * zoom)
         avatar_y = y - half_height + int(15 * zoom)
-        
-        # Avatar background
+          # Avatar background
         avatar_bg = self.canvas.create_oval(
             avatar_x - avatar_size//2, avatar_y - avatar_size//2,
             avatar_x + avatar_size//2, avatar_y + avatar_size//2,
-            fill='white', outline=COLORS['primary'], width=2,
+            fill='white', outline=person_color, width=2,
             tags=(f"person_{person_id}", "person")
         )
         group.append(avatar_bg)
           # Avatar icon
         avatar_icon = self.canvas.create_text(
             avatar_x, avatar_y, text="👤",
-            font=("Arial", int(10 * zoom)), fill=COLORS['primary'],
+            font=("Arial", int(10 * zoom)), fill=person_color,
             tags=(f"person_{person_id}", "person")
         )
         self.store_text_font_size(avatar_icon, ("Arial", 10))  # Store original size
@@ -1082,8 +1085,7 @@ class ConnectionApp:
                     self.draw_connection(id1, id2, label, zoom=zoom)        # Redraw people
         for person_id in self.people:
             self.create_person_widget(person_id, zoom=zoom)
-        
-        # Ensure proper layering: grid at bottom, connections in middle, people on top
+          # Ensure proper layering: grid at bottom, connections in middle, people on top
         self.canvas.tag_lower("grid")
 
     def save_data(self):
@@ -1092,11 +1094,11 @@ class ConnectionApp:
         if filename:
             with open(filename, 'w', newline='') as f:
                 writer = csv.writer(f)
-                writer.writerow(['ID', 'Name', 'DOB', 'Alias', 'Address', 'Phone', 'X', 'Y'])
+                writer.writerow(['ID', 'Name', 'DOB', 'Alias', 'Address', 'Phone', 'X', 'Y', 'Color'])
                 # Save people
                 for person_id, person in self.people.items():
                     writer.writerow([person_id, person.name, person.dob, person.alias, 
-                                   person.address, person.phone, person.x, person.y])
+                                   person.address, person.phone, person.x, person.y, person.color])
                 writer.writerow(['CONNECTIONS'])
                 writer.writerow(['From_ID', 'To_ID', 'Label'])
                 # Save connections
@@ -1124,7 +1126,7 @@ class ConnectionApp:
                         continue
                     if connections_section:
                         if len(row) >= 3:
-                            id1, id2, label = int(row[0]), int(row[1]), row[2]
+                            id1, id2, label = int(row[0]), int(row[1]), row[2]                            
                             if id1 in self.people and id2 in self.people:
                                 self.people[id1].connections[id2] = label
                                 self.people[id2].connections[id1] = label
@@ -1136,6 +1138,11 @@ class ConnectionApp:
                             person = Person(row[1], row[2], row[3], row[4], row[5])
                             person.x = float(row[6])
                             person.y = float(row[7])
+                            # Handle color field for backward compatibility
+                            if len(row) >= 9:
+                                person.color = int(row[8])
+                            else:
+                                person.color = 0
                             self.people[person_id] = person
                             self.next_id = max(self.next_id, person_id + 1)
                 self.redraw_all()
@@ -1416,6 +1423,14 @@ class ConnectionApp:
         """Handle delete key to remove selected connection"""
         if self.selected_connection:
             self.delete_connection()
+    
+    def on_color_cycle_key(self, event):
+        """Handle 'c' key to cycle colors of selected person"""
+        if self.selected_person:
+            person = self.people[self.selected_person]
+            person.color = (person.color + 1) % len(CARD_COLORS)
+            self.refresh_person_widget(self.selected_person)
+            self.update_status(f"Changed {person.name}'s color to {CARD_COLORS[person.color]}")
     
     def clear_connection_selection(self):
         """Clear the current connection selection"""

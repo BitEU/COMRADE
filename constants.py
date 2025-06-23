@@ -21,6 +21,18 @@ COLORS = {
     'success': '#22c55e'       # Green
 }
 
+# Card color options - 8 distinct colors
+CARD_COLORS = [
+    '#2563eb',  # Blue (default)
+    '#dc2626',  # Red
+    '#16a34a',  # Green
+    '#ca8a04',  # Yellow
+    '#9333ea',  # Purple
+    '#ea580c',  # Orange
+    '#0891b2',  # Cyan
+    '#be185d'   # Pink
+]
+
 # Application settings
 APP_TITLE = "🔗 People Connection Visualizer"
 WINDOW_WIDTH = 1400

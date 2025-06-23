@@ -7,7 +7,7 @@ class Person:
     """
     Represents a person in the connection network
     """
-    def __init__(self, name, dob="", alias="", address="", phone=""):
+    def __init__(self, name, dob="", alias="", address="", phone="", color=0):
         self.name = name
         self.dob = dob
         self.alias = alias
@@ -15,6 +15,7 @@ class Person:
         self.phone = phone
         self.x = 0
         self.y = 0
+        self.color = color  # Index into CARD_COLORS array
         self.connections = {}  # {person_id: label}
     
     def __repr__(self):
@@ -47,6 +48,7 @@ class Person:
             'phone': self.phone,
             'x': self.x,
             'y': self.y,
+            'color': self.color,
             'connections': self.connections
         }
     
@@ -58,7 +60,8 @@ class Person:
             dob=data.get('dob', ''),
             alias=data.get('alias', ''),
             address=data.get('address', ''),
-            phone=data.get('phone', '')
+            phone=data.get('phone', ''),
+            color=data.get('color', 0)
         )
         person.x = data.get('x', 0)
         person.y = data.get('y', 0)
