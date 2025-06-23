@@ -186,6 +186,7 @@ From_ID,To_ID,Label
 | **Backspace** | Delete selected connection |
 | **Enter** | Confirm dialog input |
 | **Double-click** | Edit person or connection |
+| **c** | Edit person card color |
 
 ## 🎯 Features in Detail
 
