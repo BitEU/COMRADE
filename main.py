@@ -135,8 +135,9 @@ class ConnectionApp:
         self.canvas.bind("<Button-2>", self.on_middle_button_press)
         self.canvas.bind("<B2-Motion>", self.on_middle_button_motion)
         self.canvas.bind("<ButtonRelease-2>", self.on_middle_button_release)
-        # Add mouse wheel zoom support
-        self.canvas.bind("<MouseWheel>", self.on_canvas_zoom)        # Make canvas focusable and bind keys
+        # Bind mouse wheel for zoom control
+        self.canvas.bind("<MouseWheel>", self.on_mouse_wheel)
+        # Make canvas focusable and bind keys
         self.canvas.configure(highlightthickness=1, highlightcolor=COLORS['primary'])
         self.canvas.bind("<Key-Escape>", self.on_escape_key)
         self.canvas.bind("<Key-Delete>", self.on_delete_key)
@@ -1515,27 +1516,8 @@ class ConnectionApp:
         
         # Recreate all connections at the current zoom level
         self.update_connections()
-        
-        # Redraw grid at current zoom
-        self.redraw_grid()    # --- Zoom and Pan Handlers ---
-    def on_canvas_zoom(self, event):
-        # Zoom in/out with scroll wheel, centered on mouse pointer
-        scale = 1.1 if event.delta > 0 else 0.9
-        x = self.canvas.canvasx(event.x)
-        y = self.canvas.canvasy(event.y)
-        self.canvas.scale("all", x, y, scale, scale)
-        
-        # Update the _last_zoom variable to maintain consistency with the slider
-        if hasattr(self, '_last_zoom'):
-            self._last_zoom *= scale
-        else:
-            self._last_zoom = scale
-              # Update the zoom slider to reflect the new zoom level
-        self.zoom_var.set(self._last_zoom)
-        
-        # Keep the scroll region fixed to maintain consistent canvas size
-        self.canvas.configure(scrollregion=(0, 0, self.fixed_canvas_width, self.fixed_canvas_height))
-
+          # Redraw grid at current zoom
+        self.redraw_grid()      # --- Zoom and Pan Handlers ---    
     def on_middle_button_press(self, event):
         logger.info(f"Middle mouse button pressed at ({event.x}, {event.y})")
         self.canvas.scan_mark(event.x, event.y)
@@ -1551,6 +1533,14 @@ class ConnectionApp:
     def on_middle_button_release(self, event):
         logger.info(f"Middle mouse button released at ({event.x}, {event.y})")
         self._panning = False
+
+    def on_mouse_wheel(self, event):
+        """Handle mouse wheel events to change the zoom slider"""
+        current_zoom = self.zoom_var.get()
+        zoom_step = 0.05
+        new_zoom = min(current_zoom + zoom_step, 1.0) if event.delta > 0 else max(current_zoom - zoom_step, 0.5)
+        self.zoom_var.set(new_zoom)
+        self.on_zoom(new_zoom)
 
     def store_text_font_size(self, text_item, font_string):
         """Store the original font size for a text item to enable proper scaling"""
