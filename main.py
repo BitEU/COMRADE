@@ -29,6 +29,7 @@ class ConnectionApp:
         self.people = {}  # {id: Person}
         self.person_widgets = {}  # {id: canvas_item_id}
         self.connection_lines = {}  # {(id1, id2): (line_id, label_id)}
+        self.original_font_sizes = {}  # {canvas_item_id: original_font_size} for proper text scaling
         self.selected_person = None
         self.selected_connection = None  # Track selected connection for editing/deletion
         self.dragging = False
@@ -102,8 +103,7 @@ class ConnectionApp:
         # Canvas container with modern styling
         canvas_frame = ttk.Frame(main_container, style="Modern.TFrame")
         canvas_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 10))
-        
-        # Modern canvas with gradient-like background
+          # Modern canvas with gradient-like background
         self.canvas = tk.Canvas(canvas_frame, 
                                bg='#f8fafc', 
                                highlightthickness=0,
@@ -111,8 +111,13 @@ class ConnectionApp:
                                bd=0)
         self.canvas.pack(fill=tk.BOTH, expand=True, padx=2, pady=2)
         
-        # Add subtle grid pattern to canvas
-        self.add_grid_pattern()        # Bind events
+        # Initialize fixed scroll region for consistent canvas size
+        self.fixed_canvas_width = 2800  # 2x the default width for more space
+        self.fixed_canvas_height = 1800  # 2x the default height for more space
+          # Add subtle grid pattern to canvas
+        self.add_grid_pattern()
+        
+        # Bind events
         self.canvas.bind("<Button-1>", self.on_canvas_click)
         self.canvas.bind("<B1-Motion>", self.on_canvas_drag)
         self.canvas.bind("<ButtonRelease-1>", self.on_canvas_release)
@@ -144,9 +149,7 @@ class ConnectionApp:
                                     font=("Segoe UI", 9),
                                     foreground=COLORS['text_secondary'],
                                     style="Modern.TLabel")
-        self.status_label.pack(side=tk.LEFT)
-
-        # --- Zoom slider ---
+        self.status_label.pack(side=tk.LEFT)        # --- Zoom slider ---
         self.zoom_var = tk.DoubleVar(value=1.0)
         self.zoom_slider = ttk.Scale(
             self.status_frame,
@@ -161,6 +164,9 @@ class ConnectionApp:
         
         # Bind canvas resize event
         self.canvas.bind('<Configure>', self.on_canvas_resize)
+        
+        # Set the initial scroll region
+        self.canvas.configure(scrollregion=(0, 0, self.fixed_canvas_width, self.fixed_canvas_height))
     
     def on_zoom(self, value):
         # Scale the canvas content based on the zoom value
@@ -172,31 +178,48 @@ class ConnectionApp:
         self.canvas.scale("all", 0, 0, 1/self._last_zoom if hasattr(self, '_last_zoom') else 1, 1/self._last_zoom if hasattr(self, '_last_zoom') else 1)
         self.canvas.scale("all", 0, 0, zoom, zoom)
         self._last_zoom = zoom
-        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        # Keep the scroll region fixed to maintain consistent canvas size
+        self.canvas.configure(scrollregion=(0, 0, self.fixed_canvas_width, self.fixed_canvas_height))
         self.rescale_text(zoom)
         self.redraw_grid()
 
     def rescale_text(self, zoom):
-        # Rescale all text items on the canvas
+        # Rescale all text items on the canvas based on their original font sizes
         for item in self.canvas.find_all():
             if self.canvas.type(item) == 'text':
+                # If we don't have the original font size stored, store it now
+                if item not in self.original_font_sizes:
+                    current_font = self.canvas.itemcget(item, 'font')
+                    # Parse font string: e.g., 'Segoe UI 10 bold'
+                    parts = current_font.split()
+                    # Find the first integer in the font string (the size)
+                    base_size = 10  # default fallback
+                    for part in parts:
+                        if part.isdigit():
+                            base_size = int(part)
+                            break
+                    self.original_font_sizes[item] = base_size
+                
+                # Scale from the original font size
+                original_size = self.original_font_sizes[item]
+                new_size = max(6, int(original_size * zoom))
+                
+                # Get current font to preserve style
                 current_font = self.canvas.itemcget(item, 'font')
-                # Parse font string: e.g., 'Segoe UI 10 bold'
                 parts = current_font.split()
-                # Find the first integer in the font string (the size)
-                base_size = None
-                for i, part in enumerate(parts):
-                    if part.isdigit():
-                        base_size = int(part)
-                        size_index = i
-                        break
-                if base_size is not None:
-                    new_size = max(6, int(base_size * zoom))
-                    # Rebuild font string with new size
-                    new_font = ' '.join(parts[:size_index] + [str(new_size)] + parts[size_index+1:])
+                
+                # Rebuild font string with new size
+                if len(parts) >= 2:
+                    # Replace the size part
+                    for i, part in enumerate(parts):
+                        if part.isdigit():
+                            parts[i] = str(new_size)
+                            break
+                    new_font = ' '.join(parts)
                 else:
-                    # fallback: just set size
-                    new_font = f"Segoe UI {int(10 * zoom)}"
+                    # Fallback format
+                    new_font = f"Segoe UI {new_size}"
+                
                 self.canvas.itemconfig(item, font=new_font)
 
     def on_canvas_resize(self, event):
@@ -205,13 +228,15 @@ class ConnectionApp:
     def redraw_grid(self):
         # Remove old grid
         self.canvas.delete("grid")
-        width = self.canvas.winfo_width()
-        height = self.canvas.winfo_height()
+        # Use fixed canvas dimensions instead of current widget size
+        width = self.fixed_canvas_width
+        height = self.fixed_canvas_height
         grid_size = 40 * (self._last_zoom if hasattr(self, '_last_zoom') else 1)
         for x in range(0, int(width + grid_size), int(grid_size)):
             self.canvas.create_line(x, 0, x, height, fill='#e2e8f0', width=1, tags="grid")
         for y in range(0, int(height + grid_size), int(grid_size)):
             self.canvas.create_line(0, y, width, y, fill='#e2e8f0', width=1, tags="grid")
+        # Always send grid to the very back, behind all other elements
         self.canvas.tag_lower("grid")
     
     def create_modern_button(self, parent, text, command, color):
@@ -227,8 +252,7 @@ class ConnectionApp:
                        pady=10,
                        cursor='hand2',
                        border=0)
-        
-        # Add hover effects
+          # Add hover effects
         def on_enter(e):
             btn.configure(bg=self.darken_color(color))
         
@@ -249,8 +273,9 @@ class ConnectionApp:
     
     def add_grid_pattern(self):
         """Add a subtle grid pattern to the canvas"""
-        canvas_width = 1400
-        canvas_height = 900
+        # Use the fixed canvas size for consistent grid coverage
+        canvas_width = self.fixed_canvas_width
+        canvas_height = self.fixed_canvas_height
         grid_size = 40
         
         # Vertical lines
@@ -399,16 +424,15 @@ class ConnectionApp:
             tags=(f"person_{person_id}", "person")
         )
         group.append(avatar_bg)
-        
-        # Avatar icon
+          # Avatar icon
         avatar_icon = self.canvas.create_text(
             avatar_x, avatar_y, text="👤",
             font=("Arial", int(10 * zoom)), fill=COLORS['primary'],
             tags=(f"person_{person_id}", "person")
         )
+        self.store_text_font_size(avatar_icon, ("Arial", 10))  # Store original size
         group.append(avatar_icon)
-        
-        # Name in header (white text)
+          # Name in header (white text)
         name_text = self.canvas.create_text(
             avatar_x + avatar_size + int(10 * zoom), avatar_y,
             text=person.name or "Unnamed",
@@ -416,6 +440,7 @@ class ConnectionApp:
             fill='white',
             tags=(f"person_{person_id}", "person")
         )
+        self.store_text_font_size(name_text, ("Segoe UI", 11, "bold"))  # Store original size
         group.append(name_text)
         
         # Details section
@@ -428,9 +453,11 @@ class ConnectionApp:
             ("🏠", person.address),
             ("📞", person.phone)
         ]
+        
         current_y = details_start_y
         icon_x = x - half_width + int(15 * zoom)
         text_x = icon_x + int(25 * zoom)  # Space between icon and text
+        
         for icon, value in details:
             if value and value.strip():
                 icon_item = self.canvas.create_text(
@@ -440,6 +467,7 @@ class ConnectionApp:
                     fill=COLORS['text_primary'],
                     tags=(f"person_{person_id}", "person")
                 )
+                self.store_text_font_size(icon_item, ("Segoe UI Emoji", 9))  # Store original size
                 text_item = self.canvas.create_text(
                     text_x, current_y,
                     text=value,
@@ -447,6 +475,7 @@ class ConnectionApp:
                     fill=COLORS['text_primary'],
                     tags=(f"person_{person_id}", "person")
                 )
+                self.store_text_font_size(text_item, ("Segoe UI", 9))  # Store original size
                 group.extend([icon_item, text_item])
                 current_y += line_height
         
@@ -898,16 +927,19 @@ class ConnectionApp:
             icon = "💼"
         elif "partner" in label.lower() or "spouse" in label.lower():
             icon = "💑"
+        
         icon_text = self.canvas.create_text(
             mid_x - half_width + int(15 * zoom), mid_y,
             text=icon,
             font=("Arial", int(12 * zoom)),
             tags=("connection",))
+        self.store_text_font_size(icon_text, ("Arial", 12))  # Store original size
         label_text = self.canvas.create_text(
             mid_x, mid_y,
             text=label,
             font=("Segoe UI", int(10 * zoom)),
             tags=("connection", f"connection_label_{min(id1, id2)}_{max(id1, id2)}"))
+        self.store_text_font_size(label_text, ("Segoe UI", 10))  # Store original size
         
         # Make label clickable by adding larger invisible area
         clickable_area = self.canvas.create_rectangle(
@@ -919,14 +951,16 @@ class ConnectionApp:
         # Store connection info with all elements
         key = (min(id1, id2), max(id1, id2))
         self.connection_lines[key] = (shadow_line, line, label_shadow, label_bg, icon_text, label_text, clickable_area)
-        
-        # Move connections to back but labels to front
+          # Move connections to back but labels to front
         self.canvas.tag_lower(shadow_line)
         self.canvas.tag_lower(line)
         self.canvas.tag_raise(label_shadow)
         self.canvas.tag_raise(label_bg)
         self.canvas.tag_raise(icon_text)
         self.canvas.tag_raise(label_text)
+        
+        # Ensure grid stays behind all elements
+        self.canvas.tag_lower("grid")
         
     def update_connections(self):
         zoom = self._last_zoom if hasattr(self, '_last_zoom') else 1.0
@@ -979,6 +1013,9 @@ class ConnectionApp:
                 mid_y = (y1 + y2) / 2
                 self.canvas.coords(label_bg, mid_x - 30, mid_y - 10, mid_x + 30, mid_y + 10)
                 self.canvas.coords(label_text, mid_x, mid_y)
+        
+        # Ensure grid stays behind all elements after updating connections
+        self.canvas.tag_lower("grid")
             
     def edit_person(self, person_id):
         person = self.people[person_id]
@@ -990,19 +1027,22 @@ class ConnectionApp:
             # Update person data
             for key, value in dialog.result.items():
                 setattr(person, key, value)
-            
-            # Update display
+              # Update display
             self.refresh_person_widget(person_id)
-            
+    
     def refresh_person_widget(self, person_id):
-        # Delete old widget
+        # Delete old widget and clean up font size tracking
         for item in self.person_widgets[person_id]:
             self.canvas.delete(item)
-            
-        # Create new widget
+            # Clean up font size tracking for text items
+            if item in self.original_font_sizes:
+                del self.original_font_sizes[item]
+              # Create new widget
         self.create_person_widget(person_id)
           # Restore connections to back
         self.canvas.tag_lower("connection")
+        # Ensure grid stays behind all elements
+        self.canvas.tag_lower("grid")
         
     def apply_box_layout(self):
         cols = 2  # Reduce to 2 columns for larger boxes
@@ -1031,9 +1071,12 @@ class ConnectionApp:
         for id1, person1 in self.people.items():
             for id2, label in person1.connections.items():
                 if id1 < id2:  # Avoid duplicates
-                    self.draw_connection(id1, id2, label, zoom=zoom)
-        # Redraw people
-        for person_id in self.people:            self.create_person_widget(person_id, zoom=zoom)
+                    self.draw_connection(id1, id2, label, zoom=zoom)        # Redraw people
+        for person_id in self.people:
+            self.create_person_widget(person_id, zoom=zoom)
+        
+        # Ensure proper layering: grid at bottom, connections in middle, people on top
+        self.canvas.tag_lower("grid")
 
     def save_data(self):
         filename = filedialog.asksaveasfilename(defaultextension=".csv",
@@ -1089,12 +1132,13 @@ class ConnectionApp:
                             self.next_id = max(self.next_id, person_id + 1)
                 self.redraw_all()
                 messagebox.showinfo("Success", "Data loaded successfully!")
-            
+    
     def clear_all(self):
         self.canvas.delete("all")
         self.people.clear()
         self.person_widgets.clear()
         self.connection_lines.clear()
+        self.original_font_sizes.clear()  # Clear font size tracking
         self.selected_person = None
         self.next_id = 1
         # Recreate the grid pattern after clearing
@@ -1174,12 +1218,14 @@ class ConnectionApp:
             return
             
         id1, id2 = self.selected_connection
-        
-        # Remove from canvas
+          # Remove from canvas
         if self.selected_connection in self.connection_lines:
             elements = self.connection_lines[self.selected_connection] 
             for element in elements:
                 self.canvas.delete(element)
+                # Clean up font size tracking for text items
+                if element in self.original_font_sizes:
+                    del self.original_font_sizes[element]
             del self.connection_lines[self.selected_connection]
         
         # Remove from data structure
@@ -1227,9 +1273,7 @@ class ConnectionApp:
         self.update_connections()
         
         # Redraw grid at current zoom
-        self.redraw_grid()
-
-    # --- Zoom and Pan Handlers ---
+        self.redraw_grid()    # --- Zoom and Pan Handlers ---
     
     def on_canvas_zoom(self, event):
         # Zoom in/out with scroll wheel, centered on mouse pointer
@@ -1246,8 +1290,8 @@ class ConnectionApp:
               # Update the zoom slider to reflect the new zoom level
         self.zoom_var.set(self._last_zoom)
         
-        # Update scroll region to accommodate new zoom level
-        self.canvas.configure(scrollregion=self.canvas.bbox("all"))
+        # Keep the scroll region fixed to maintain consistent canvas size
+        self.canvas.configure(scrollregion=(0, 0, self.fixed_canvas_width, self.fixed_canvas_height))
 
     def on_middle_button_press(self, event):
         logger.info(f"Middle mouse button pressed at ({event.x}, {event.y})")
@@ -1264,6 +1308,21 @@ class ConnectionApp:
     def on_middle_button_release(self, event):
         logger.info(f"Middle mouse button released at ({event.x}, {event.y})")
         self._panning = False
+
+    def store_text_font_size(self, text_item, font_string):
+        """Store the original font size for a text item to enable proper scaling"""
+        if isinstance(font_string, tuple):
+            # Font specified as tuple (family, size, style)
+            size = font_string[1] if len(font_string) > 1 else 10
+        else:
+            # Font specified as string, parse it
+            parts = str(font_string).split()
+            size = 10  # default
+            for part in parts:
+                if part.isdigit():
+                    size = int(part)
+                    break
+        self.original_font_sizes[text_item] = size
 
 if __name__ == "__main__":
     logger.info("Starting application")
