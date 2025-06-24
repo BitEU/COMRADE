@@ -1024,8 +1024,7 @@ class ConnectionApp:
                 mid_x = (x1 + x2) / 2
                 mid_y = (y1 + y2) / 2
                 self.canvas.coords(label_bg, mid_x - 30, mid_y - 10, mid_x + 30, mid_y + 10)
-                self.canvas.coords(label_text, mid_x, mid_y)
-        
+                self.canvas.coords(label_text, mid_x, mid_y)        
         # Ensure grid stays behind all elements after updating connections
         self.canvas.tag_lower("grid")
             
@@ -1035,6 +1034,7 @@ class ConnectionApp:
                             name=person.name, dob=person.dob, 
                             alias=person.alias, address=person.address, 
                             phone=person.phone)
+        self.root.wait_window(dialog.dialog)  # Wait for dialog to close
         if dialog.result:
             # Update person data
             for key, value in dialog.result.items():
