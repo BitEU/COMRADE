@@ -10,6 +10,7 @@ import zipfile
 import shutil
 import tempfile
 import json
+from functools import lru_cache
 
 # Try to import PIL for PNG export functionality
 try:
@@ -41,6 +42,16 @@ class ConnectionApp:
         self.person_widgets = {}  # {id: canvas_item_id}
         self.connection_lines = {}  # {(id1, id2): (line_id, label_id)}
         self.original_font_sizes = {}  # {canvas_item_id: original_font_size} for proper text scaling
+        self.original_image_sizes = {}  # {canvas_item_id: (original_width, original_height)} for proper image scaling
+        self.image_cache = {}  # {(file_path, width, height): PhotoImage} for caching resized images
+        
+        # Optimized image caching for zoom performance
+        self.scaled_image_cache = {}  # {(image_path, scale_factor): PhotoImage}
+        self.base_image_cache = {}   # {image_path: PIL.Image} - original PIL images
+        self.current_scale = 1.0     # Track current zoom level
+        self.max_cache_size = 50     # Limit cache size to prevent memory issues
+        self.zoom_debounce_timer = None  # Timer for debouncing zoom events
+        
         self.selected_person = None
         self.selected_connection = None  # Track selected connection for editing/deletion
         self.dragging = False
@@ -192,53 +203,160 @@ class ConnectionApp:
             zoom = float(value)
         except ValueError:
             zoom = 1.0
-        # Reset scale, then apply new scale
-        self.canvas.scale("all", 0, 0, 1/self._last_zoom if hasattr(self, '_last_zoom') else 1, 1/self._last_zoom if hasattr(self, '_last_zoom') else 1)
-        self.canvas.scale("all", 0, 0, zoom, zoom)
+        
+        # Avoid unnecessary work if zoom hasn't changed significantly
+        if hasattr(self, '_last_zoom') and abs(zoom - self._last_zoom) < 0.01:
+            return
+        
+        # Store previous zoom for efficient scaling
+        prev_zoom = self._last_zoom if hasattr(self, '_last_zoom') else 1.0
+        
+        # Use single canvas.scale operation for better performance
+        scale_factor = zoom / prev_zoom
+        self.canvas.scale("all", 0, 0, scale_factor, scale_factor)
         self._last_zoom = zoom
+        
         # Keep the scroll region fixed to maintain consistent canvas size
         self.canvas.configure(scrollregion=(0, 0, self.fixed_canvas_width, self.fixed_canvas_height))
+        
+        # Batch UI updates for better performance
+        self.debounced_zoom_update(zoom)
+
+    def debounced_zoom_update(self, zoom):
+        """Perform expensive zoom operations with debouncing"""
+        # Cancel previous timer if it exists
+        if self.zoom_debounce_timer:
+            self.root.after_cancel(self.zoom_debounce_timer)
+        
+        # Schedule the expensive operations after a short delay
+        self.zoom_debounce_timer = self.root.after(50, lambda: self._perform_zoom_update(zoom))
+    
+    def _perform_zoom_update(self, zoom):
+        """Perform the actual expensive zoom update operations"""
         self.rescale_text(zoom)
+        self.rescale_images_optimized(zoom)
         self.redraw_grid()
+        self.zoom_debounce_timer = None
+
+    def rescale_images(self, zoom):
+        """Rescale all image items on the canvas based on their original dimensions"""
+        if not hasattr(self, 'image_refs'):
+            return
+        
+        # Collect image items first to avoid repeated canvas.find_all() calls
+        image_items = []
+        for item in self.canvas.find_all():
+            if self.canvas.type(item) == 'image' and 'image' in self.canvas.gettags(item):
+                image_items.append(item)
+        
+        # Process image items in batch
+        for item in image_items:
+            # Scale from the original image size if we have it stored
+            if item in self.original_image_sizes and item in self.image_refs:
+                original_width, original_height = self.original_image_sizes[item]
+                new_width = max(10, int(original_width * zoom))
+                new_height = max(10, int(original_height * zoom))
+                
+                # Get the person_id from the canvas item tags to find the image file
+                tags = self.canvas.gettags(item)
+                person_tag = None
+                for tag in tags:
+                    if tag.startswith('person_'):
+                        person_tag = tag
+                        break
+                
+                if person_tag:
+                    person_id = int(person_tag.split('_')[1])
+                    if person_id in self.people:
+                        person = self.people[person_id]
+                        
+                        # Find the image file for this person
+                        image_file = None
+                        image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'}
+                        if hasattr(person, 'files') and person.files:
+                            for file_path in person.files:
+                                if os.path.exists(file_path) and os.path.splitext(file_path.lower())[1] in image_extensions:
+                                    image_file = file_path
+                                    break
+                        
+                        if image_file and PIL_AVAILABLE:
+                            try:
+                                # Check cache first
+                                cache_key = (image_file, new_width, new_height)
+                                if cache_key in self.image_cache:
+                                    # Use cached image
+                                    new_photo = self.image_cache[cache_key]
+                                else:
+                                    # Load and resize image, then cache it
+                                    pil_image = Image.open(image_file)
+                                    pil_image = pil_image.resize((new_width, new_height), Image.Resampling.LANCZOS)
+                                    
+                                    # Convert to PhotoImage
+                                    from PIL import ImageTk
+                                    new_photo = ImageTk.PhotoImage(pil_image)
+                                    
+                                    # Cache the resized image
+                                    self.image_cache[cache_key] = new_photo
+                                    
+                                    # Manage cache size to prevent memory issues
+                                    if len(self.image_cache) > 50:  # Limit cache size
+                                        # Remove oldest entries
+                                        keys_to_remove = list(self.image_cache.keys())[:-40]  # Keep last 40
+                                        for old_key in keys_to_remove:
+                                            del self.image_cache[old_key]
+                                
+                                # Update the canvas image
+                                self.canvas.itemconfig(item, image=new_photo)
+                                
+                                # Update the reference to prevent garbage collection
+                                self.image_refs[item] = new_photo
+                                
+                            except Exception as e:
+                                logger.warning(f"Failed to rescale image for person {person_id}: {e}")
 
     def rescale_text(self, zoom):
         # Rescale all text items on the canvas based on their original font sizes
+        text_items = []
         for item in self.canvas.find_all():
             if self.canvas.type(item) == 'text':
-                # If we don't have the original font size stored, store it now
-                if item not in self.original_font_sizes:
-                    current_font = self.canvas.itemcget(item, 'font')
-                    # Parse font string: e.g., 'Segoe UI 10 bold'
-                    parts = current_font.split()
-                    # Find the first integer in the font string (the size)
-                    base_size = 10  # default fallback
-                    for part in parts:
-                        if part.isdigit():
-                            base_size = int(part)
-                            break
-                    self.original_font_sizes[item] = base_size
-                
-                # Scale from the original font size
-                original_size = self.original_font_sizes[item]
-                new_size = max(6, int(original_size * zoom))
-                
-                # Get current font to preserve style
+                text_items.append(item)
+        
+        # Process text items in batch
+        for item in text_items:
+            # If we don't have the original font size stored, store it now
+            if item not in self.original_font_sizes:
                 current_font = self.canvas.itemcget(item, 'font')
+                # Parse font string: e.g., 'Segoe UI 10 bold'
                 parts = current_font.split()
-                
-                # Rebuild font string with new size
-                if len(parts) >= 2:
-                    # Replace the size part
-                    for i, part in enumerate(parts):
-                        if part.isdigit():
-                            parts[i] = str(new_size)
-                            break
-                    new_font = ' '.join(parts)
-                else:
-                    # Fallback format
-                    new_font = f"Segoe UI {new_size}"
-                
-                self.canvas.itemconfig(item, font=new_font)
+                # Find the first integer in the font string (the size)
+                base_size = 10  # default fallback
+                for part in parts:
+                    if part.isdigit():
+                        base_size = int(part)
+                        break
+                self.original_font_sizes[item] = base_size
+            
+            # Scale from the original font size
+            original_size = self.original_font_sizes[item]
+            new_size = max(6, int(original_size * zoom))
+            
+            # Get current font to preserve style
+            current_font = self.canvas.itemcget(item, 'font')
+            parts = current_font.split()
+            
+            # Rebuild font string with new size
+            if len(parts) >= 2:
+                # Replace the size part
+                for i, part in enumerate(parts):
+                    if part.isdigit():
+                        parts[i] = str(new_size)
+                        break
+                new_font = ' '.join(parts)
+            else:
+                # Fallback format
+                new_font = f"Segoe UI {new_size}"
+            
+            self.canvas.itemconfig(item, font=new_font)
 
     def on_canvas_resize(self, event):
         self.redraw_grid()
@@ -250,10 +368,22 @@ class ConnectionApp:
         width = self.fixed_canvas_width
         height = self.fixed_canvas_height
         grid_size = 40 * (self._last_zoom if hasattr(self, '_last_zoom') else 1)
-        for x in range(0, int(width + grid_size), int(grid_size)):
+        
+        # Optimize by creating fewer grid lines when zoomed out
+        min_grid_spacing = 20  # Minimum spacing between grid lines in pixels
+        if grid_size < min_grid_spacing:
+            grid_size = min_grid_spacing
+        
+        # Create vertical lines with step optimization
+        x_step = max(int(grid_size), 40)
+        for x in range(0, int(width + x_step), x_step):
             self.canvas.create_line(x, 0, x, height, fill='#e2e8f0', width=1, tags="grid")
-        for y in range(0, int(height + grid_size), int(grid_size)):
+        
+        # Create horizontal lines with step optimization  
+        y_step = max(int(grid_size), 40)
+        for y in range(0, int(height + y_step), y_step):
             self.canvas.create_line(0, y, width, y, fill='#e2e8f0', width=1, tags="grid")
+        
         # Always send grid to the very back, behind all other elements
         self.canvas.tag_lower("grid")
     
@@ -363,6 +493,11 @@ class ConnectionApp:
             logger.info("Dialog was cancelled")
             
     def create_person_widget(self, person_id, zoom=None):
+        # Safety check to prevent widget creation during drag operations
+        if self.dragging:
+            logger.warning(f"Attempted to create widget for person {person_id} during drag - skipping")
+            return
+            
         logger.info(f"Creating modern widget for person {person_id}")
         person = self.people[person_id]
         if zoom is None:
@@ -530,46 +665,54 @@ class ConnectionApp:
                 # Load and resize image
                 pil_image = Image.open(image_file)
                 
-                # Calculate image dimensions (maintain aspect ratio)
-                max_img_width = int(100 * zoom)
-                max_img_height = int((card_height - header_height - 20) * 0.9)  # Leave some padding
+                # Calculate image dimensions (maintain aspect ratio) - use base size regardless of zoom
+                base_max_width = 100  # Base size at zoom=1.0
+                base_max_height = 100  # Base size at zoom=1.0 - keep it simple and square
                 
                 # Calculate scaling to fit within bounds
                 img_ratio = pil_image.width / pil_image.height
-                if max_img_width / max_img_height > img_ratio:
+                if base_max_width / base_max_height > img_ratio:
                     # Height is the limiting factor
-                    img_height = max_img_height
-                    img_width = int(img_height * img_ratio)
+                    base_img_height = base_max_height
+                    base_img_width = int(base_img_height * img_ratio)
                 else:
                     # Width is the limiting factor
-                    img_width = max_img_width
-                    img_height = int(img_width / img_ratio)
+                    base_img_width = base_max_width
+                    base_img_height = int(base_img_width / img_ratio)
                 
-                # Resize image
-                pil_image = pil_image.resize((img_width, img_height), Image.Resampling.LANCZOS)
+                # Apply zoom to get actual display size
+                img_width = int(base_img_width * zoom)
+                img_height = int(base_img_height * zoom)
                 
-                # Convert to PhotoImage using ImageTk
-                from PIL import ImageTk
-                photo = ImageTk.PhotoImage(pil_image)
+                # Use optimized caching system
+                photo = self.get_scaled_image(image_file, img_width, img_height)
                 
-                # Position image on the right side of the card
-                img_x = x + half_width - img_width//2 - int(10 * zoom)  # Right side with padding
-                img_y = y - half_height + header_height + img_height//2 + int(10 * zoom)  # Below header with padding
-                
-                # Create image on canvas
-                img_item = self.canvas.create_image(
-                    img_x, img_y,
-                    image=photo,
-                    anchor="center",
-                    tags=(f"person_{person_id}", "person", "image")
-                )
-                
-                # Store reference to prevent garbage collection
-                if not hasattr(self, 'image_refs'):
-                    self.image_refs = {}
-                self.image_refs[img_item] = photo
-                
-                group.append(img_item)
+                if photo:
+                    # Position image on the right side of the card
+                    img_x = x + half_width - img_width//2 - int(10 * zoom)  # Right side with padding
+                    img_y = y - half_height + header_height + img_height//2 + int(10 * zoom)  # Below header with padding
+                    
+                    # Create image on canvas
+                    img_item = self.canvas.create_image(
+                        img_x, img_y,
+                        image=photo,
+                        anchor="center",
+                        tags=(f"person_{person_id}", "person", "image")
+                    )
+                    
+                    # Store reference to prevent garbage collection
+                    if not hasattr(self, 'image_refs'):
+                        self.image_refs = {}
+                    self.image_refs[img_item] = photo
+                    
+                    # Store image path for efficient re-scaling
+                    if not hasattr(photo, 'image_path'):
+                        photo.image_path = image_file
+                    
+                    # Store original (base) image dimensions for proper scaling
+                    self.original_image_sizes[img_item] = (base_img_width, base_img_height)
+                    
+                    group.append(img_item)
                 
             except Exception as e:
                 logger.error(f"Failed to load image {image_file}: {e}")
@@ -781,10 +924,21 @@ class ConnectionApp:
 
     def on_canvas_release(self, event):
         if self.dragging and self.selected_person:
+            # Mark dragging as false first to allow widget refresh
+            self.dragging = False
+            
+            # Handle any pending color refresh from color cycling during drag
+            refresh_person = self.selected_person
+            if hasattr(self, '_pending_color_refresh') and self._pending_color_refresh:
+                refresh_person = self._pending_color_refresh
+                delattr(self, '_pending_color_refresh')
+            
             # After dragging is complete, refresh the widget to ensure correct positioning
             # This normalizes the widget to the correct zoom level
-            self.refresh_person_widget(self.selected_person)
-        self.dragging = False
+            # Use a small delay to ensure all drag events are processed
+            self.root.after(50, lambda: self.refresh_person_widget(refresh_person) if refresh_person else None)
+        else:
+            self.dragging = False
     
     def on_double_click(self, event):
         """Handle double-click events for editing connections"""
@@ -807,6 +961,17 @@ class ConnectionApp:
                     break
     
     def on_mouse_move(self, event):
+        # Skip mouse move processing during drag operations to prevent interference
+        if self.dragging:
+            return
+            
+        # Throttle mouse move events to improve performance
+        current_time = datetime.now().timestamp()
+        if hasattr(self, '_last_mouse_move_time'):
+            if current_time - self._last_mouse_move_time < 0.02:  # 50 FPS max
+                return
+        self._last_mouse_move_time = current_time
+        
         # Update hover effects using more forgiving detection
         # Use a small area around the cursor instead of just the closest point
         tolerance = 5  # pixels
@@ -828,16 +993,21 @@ class ConnectionApp:
         # Apply hover effects only if not in connection mode or if hovering over different person
         if person_id is not None:
             if not self.connecting or (self.connecting and person_id != self.connection_start):
-                # Use existing hover system but make it simpler
+                # Simple hover effect - just change cursor
                 if hasattr(self, 'current_hover') and self.current_hover != person_id:
-                    self.remove_hover_from_person(self.current_hover)
+                    # Remove previous hover
+                    pass
                 if not hasattr(self, 'current_hover') or self.current_hover != person_id:
-                    self.apply_hover_to_person(person_id)
+                    # Apply new hover - just set cursor
+                    self.canvas.configure(cursor="hand2")
                     self.current_hover = person_id
         else:
             if hasattr(self, 'current_hover'):
-                self.remove_hover_from_person(self.current_hover)
-                delattr(self, 'current_hover')        # Update temp line if connecting - make it more responsive
+                # Remove hover effect - reset cursor
+                self.canvas.configure(cursor="")
+                delattr(self, 'current_hover')
+        
+        # Update temp line if connecting - make it more responsive
         if self.connecting and self.temp_line and self.connection_start:
             p = self.people[self.connection_start]
             # Get the current zoom level
@@ -849,7 +1019,8 @@ class ConnectionApp:
             canvas_x = self.canvas.canvasx(event.x)
             canvas_y = self.canvas.canvasy(event.y)
             self.canvas.coords(self.temp_line, start_x, start_y, canvas_x, canvas_y)
-              # Change line color based on what we're hovering over
+            
+            # Change line color based on what we're hovering over
             if person_id is not None and person_id != self.connection_start:
                 # Hovering over a different person - show ready to connect
                 self.canvas.itemconfig(self.temp_line, fill=COLORS['success'], width=4)
@@ -1124,12 +1295,19 @@ class ConnectionApp:
             self.refresh_person_widget(person_id)
     
     def refresh_person_widget(self, person_id):
+        # Prevent widget refresh during drag operations to avoid freezing
+        if self.dragging:
+            return
+        
         # Delete old widget and clean up font size tracking
         for item in self.person_widgets[person_id]:
             self.canvas.delete(item)
             # Clean up font size tracking for text items
             if item in self.original_font_sizes:
                 del self.original_font_sizes[item]
+            # Clean up image size tracking for image items
+            if item in self.original_image_sizes:
+                del self.original_image_sizes[item]
             # Clean up image references
             if hasattr(self, 'image_refs') and item in self.image_refs:
                 del self.image_refs[item]
@@ -1160,6 +1338,14 @@ class ConnectionApp:
         self.canvas.delete("all")
         self.person_widgets.clear()
         self.connection_lines.clear()
+        # Clear tracking data
+        self.original_font_sizes.clear()
+        self.original_image_sizes.clear()
+        if hasattr(self, 'image_refs'):
+            self.image_refs.clear()
+        # Clear image cache to free memory
+        if hasattr(self, 'image_cache'):
+            self.image_cache.clear()
         # Recreate the grid pattern after clearing
         self.add_grid_pattern()
         zoom = self._last_zoom if hasattr(self, '_last_zoom') else 1.0
@@ -1687,8 +1873,15 @@ class ConnectionApp:
         if self.selected_person:
             person = self.people[self.selected_person]
             person.color = (person.color + 1) % len(CARD_COLORS)
-            self.refresh_person_widget(self.selected_person)
-            self.update_status(f"Changed {person.name}'s color to {CARD_COLORS[person.color]}")
+            
+            # Only refresh widget if not currently dragging
+            if not self.dragging:
+                self.refresh_person_widget(self.selected_person)
+                self.update_status(f"Changed {person.name}'s color to {CARD_COLORS[person.color]}")
+            else:
+                # Schedule the refresh for after drag operation
+                self.update_status(f"Color changed to {CARD_COLORS[person.color]} - will apply after drag")
+                self._pending_color_refresh = self.selected_person
     
     def clear_connection_selection(self):
         """Clear the current connection selection"""
@@ -1840,6 +2033,114 @@ class ConnectionApp:
                         
         except Exception as e:
             logger.warning(f"Error during cleanup: {e}")
+
+    def cleanup_image_cache(self):
+        """Clean up image caches to prevent memory bloat"""
+        # Clean scaled image cache if it gets too large
+        if len(self.scaled_image_cache) > self.max_cache_size * 2:
+            # Keep only the most recently used half
+            items = list(self.scaled_image_cache.items())
+            keep_count = self.max_cache_size
+            self.scaled_image_cache = dict(items[-keep_count:])
+            logger.info(f"Cleaned scaled image cache, keeping {keep_count} entries")
+        
+        # Clean base image cache if it gets too large (keep fewer base images)
+        if len(self.base_image_cache) > 20:
+            items = list(self.base_image_cache.items())
+            keep_count = 10
+            self.base_image_cache = dict(items[-keep_count:])
+            logger.info(f"Cleaned base image cache, keeping {keep_count} entries")
+
+    def clear_image_caches(self):
+        """Clear all image caches - useful when loading new data"""
+        self.scaled_image_cache.clear()
+        self.base_image_cache.clear()
+        self.get_base_image.cache_clear()  # Clear LRU cache
+        logger.info("Cleared all image caches")
+    
+    @lru_cache(maxsize=100)
+    def get_base_image(self, image_path):
+        """Get cached PIL Image for given path"""
+        if image_path not in self.base_image_cache:
+            try:
+                pil_image = Image.open(image_path)
+                # Convert to RGB if necessary for consistent handling
+                if pil_image.mode != 'RGB':
+                    pil_image = pil_image.convert('RGB')
+                self.base_image_cache[image_path] = pil_image
+            except Exception as e:
+                logger.error(f"Error loading base image {image_path}: {e}")
+                return None
+        return self.base_image_cache[image_path]
+    
+    def get_scaled_image(self, image_path, target_width, target_height):
+        """Get efficiently cached and scaled PhotoImage"""
+        # Create cache key based on path and target dimensions
+        cache_key = (image_path, target_width, target_height)
+        
+        # Return cached version if available
+        if cache_key in self.scaled_image_cache:
+            return self.scaled_image_cache[cache_key]
+        
+        # Load base image
+        base_image = self.get_base_image(image_path)
+        if base_image is None:
+            return None
+        
+        try:
+            # Use high-quality resampling for better results
+            scaled_pil = base_image.resize((int(target_width), int(target_height)), Image.Resampling.LANCZOS)
+            
+            # Import ImageTk here to avoid circular imports
+            from PIL import ImageTk
+            photo_image = ImageTk.PhotoImage(scaled_pil)
+            
+            # Cache the result (with size limit)
+            if len(self.scaled_image_cache) >= self.max_cache_size:
+                # Remove oldest entries (simple FIFO)
+                oldest_key = next(iter(self.scaled_image_cache))
+                del self.scaled_image_cache[oldest_key]
+            
+            self.scaled_image_cache[cache_key] = photo_image
+            return photo_image
+            
+        except Exception as e:
+            logger.error(f"Error scaling image {image_path}: {e}")
+            return None
+    
+    def rescale_images_optimized(self, zoom):
+        """Optimized image rescaling with caching"""
+        if not hasattr(self, 'image_refs'):
+            return
+        
+        # Get all image items at once
+        all_items = self.canvas.find_all()
+        image_items = [item for item in all_items 
+                      if self.canvas.type(item) == 'image' and 'image' in self.canvas.gettags(item)]
+        
+        # Batch process images
+        updates = []
+        for item in image_items:
+            if item in self.original_image_sizes and item in self.image_refs:
+                orig_width, orig_height = self.original_image_sizes[item]
+                new_width = int(orig_width * zoom)
+                new_height = int(orig_height * zoom)
+                
+                # Get the image path
+                image_path = getattr(self.image_refs[item], 'image_path', None)
+                if image_path and os.path.exists(image_path):
+                    scaled_image = self.get_scaled_image(image_path, new_width, new_height)
+                    if scaled_image:
+                        updates.append((item, scaled_image))
+        
+        # Apply all updates at once
+        for item, scaled_image in updates:
+            self.canvas.itemconfig(item, image=scaled_image)
+            self.image_refs[item] = scaled_image
+        
+        # Periodic cache cleanup to prevent memory issues
+        if len(updates) > 0:  # Only cleanup when we actually processed images
+            self.cleanup_image_cache()
 
 if __name__ == "__main__":
     logger.info("Starting application")
