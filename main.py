@@ -847,10 +847,19 @@ class ConnectionApp:
     def on_canvas_click(self, event):
         # Account for zoom in hit detection
         zoom = self._last_zoom if hasattr(self, '_last_zoom') else 1.0
-        tolerance = 3  # Small area around the cursor
+        # Increase tolerance at zoom levels close to 1.0 where precision issues can occur
+        base_tolerance = 3
+        if 0.9 <= zoom <= 1.1:
+            tolerance = int(base_tolerance * 1.5)  # Increase tolerance near zoom 1.0
+        else:
+            tolerance = base_tolerance
         
-        # Use canvas coordinates directly for hit detection
-        items = self.canvas.find_overlapping(event.x - tolerance, event.y - tolerance, event.x + tolerance, event.y + tolerance)
+        # Convert screen coordinates to canvas coordinates to handle scrolled content
+        canvas_x = self.canvas.canvasx(event.x)
+        canvas_y = self.canvas.canvasy(event.y)
+        
+        # Use canvas coordinates for hit detection
+        items = self.canvas.find_overlapping(canvas_x - tolerance, canvas_y - tolerance, canvas_x + tolerance, canvas_y + tolerance)
         if not items:
             return
             
@@ -870,12 +879,8 @@ class ConnectionApp:
                     break
         
         if selected_person_id is not None:
-            # Normalize all widgets to current zoom level before starting drag
-            # This ensures consistent interaction regardless of how zoom was applied
-            self.normalize_all_widgets_to_current_zoom()
-            
             self.selected_person = selected_person_id
-            self.drag_data = {"x": event.x, "y": event.y}
+            self.drag_data = {"x": canvas_x, "y": canvas_y}
             self.dragging = True
         else:
             # Check for connection selection as before
@@ -897,16 +902,20 @@ class ConnectionApp:
         if self.dragging and self.selected_person:
             zoom = self._last_zoom if hasattr(self, '_last_zoom') else 1.0
             
-            # Calculate the movement delta in screen coordinates
-            dx_screen = event.x - self.drag_data["x"]
-            dy_screen = event.y - self.drag_data["y"]
+            # Convert screen coordinates to canvas coordinates
+            canvas_x = self.canvas.canvasx(event.x)
+            canvas_y = self.canvas.canvasy(event.y)
             
-            # Convert screen delta to world delta (compensate for zoom)
-            dx_world = dx_screen / zoom
-            dy_world = dy_screen / zoom
+            # Calculate the movement delta in canvas coordinates
+            dx_canvas = canvas_x - self.drag_data["x"]
+            dy_canvas = canvas_y - self.drag_data["y"]
             
-            logger.debug(f"[DRAG] Zoom: {zoom:.3f}, Mouse: ({event.x}, {event.y}), "
-                         f"Screen Δ: ({dx_screen}, {dy_screen}), World Δ: ({dx_world:.2f}, {dy_world:.2f})")
+            # Convert canvas delta to world delta (compensate for zoom)
+            dx_world = dx_canvas / zoom
+            dy_world = dy_canvas / zoom
+            
+            logger.debug(f"[DRAG] Zoom: {zoom:.3f}, Canvas: ({canvas_x}, {canvas_y}), "
+                         f"Canvas Δ: ({dx_canvas}, {dy_canvas}), World Δ: ({dx_world:.2f}, {dy_world:.2f})")
 
             # Update logical (unscaled) position using world delta
             self.people[self.selected_person].x += dx_world
@@ -916,11 +925,11 @@ class ConnectionApp:
             # Move existing canvas items directly during drag (much more efficient)
             person_items = self.person_widgets[self.selected_person]
             for item in person_items:
-                self.canvas.move(item, dx_screen, dy_screen)
+                self.canvas.move(item, dx_canvas, dy_canvas)
 
             # Update connections immediately (but efficiently)
             self.update_connections()            # Update drag data for next movement
-            self.drag_data = {"x": event.x, "y": event.y}
+            self.drag_data = {"x": canvas_x, "y": canvas_y}
 
     def on_canvas_release(self, event):
         if self.dragging and self.selected_person:
@@ -942,7 +951,11 @@ class ConnectionApp:
     
     def on_double_click(self, event):
         """Handle double-click events for editing connections"""
-        items = self.canvas.find_closest(event.x, event.y)
+        # Convert screen coordinates to canvas coordinates
+        canvas_x = self.canvas.canvasx(event.x)
+        canvas_y = self.canvas.canvasy(event.y)
+        
+        items = self.canvas.find_closest(canvas_x, canvas_y)
         if not items:
             return
             
@@ -975,8 +988,13 @@ class ConnectionApp:
         # Update hover effects using more forgiving detection
         # Use a small area around the cursor instead of just the closest point
         tolerance = 5  # pixels
-        items = self.canvas.find_overlapping(event.x - tolerance, event.y - tolerance, 
-                                           event.x + tolerance, event.y + tolerance)
+        
+        # Convert screen coordinates to canvas coordinates
+        canvas_x = self.canvas.canvasx(event.x)
+        canvas_y = self.canvas.canvasy(event.y)
+        
+        items = self.canvas.find_overlapping(canvas_x - tolerance, canvas_y - tolerance, 
+                                           canvas_x + tolerance, canvas_y + tolerance)
         
         # Find if we're hovering over a person (look through all overlapping items)
         person_id = None
@@ -1031,9 +1049,14 @@ class ConnectionApp:
     def on_right_click(self, event):
         """Improved right-click linking with more forgiving detection"""
         tolerance = 10  # Larger tolerance for right-clicks
-        items = self.canvas.find_overlapping(event.x - tolerance, event.y - tolerance, 
-                                           event.x + tolerance, event.y + tolerance)
-        logger.debug(f"Right-click at ({event.x}, {event.y}), found items: {items}")
+        
+        # Convert screen coordinates to canvas coordinates
+        canvas_x = self.canvas.canvasx(event.x)
+        canvas_y = self.canvas.canvasy(event.y)
+        
+        items = self.canvas.find_overlapping(canvas_x - tolerance, canvas_y - tolerance, 
+                                           canvas_x + tolerance, canvas_y + tolerance)
+        logger.debug(f"Right-click at canvas ({canvas_x}, {canvas_y}), found items: {items}")
         # Find the person that was clicked
         person_id = None
         for item in items:
@@ -1057,7 +1080,7 @@ class ConnectionApp:
         if not self.connecting:
             logger.info(f"No active connection. Starting new connection from {person_id} ({self.people[person_id].name})")
             # Start a new connection
-            self.start_connection(person_id, event.x, event.y)
+            self.start_connection(person_id, canvas_x, canvas_y)
         elif self.connection_start == person_id:
             logger.info(f"Right-clicked the same person ({person_id}). Cancelling connection.")
             # Right-clicking on the same person cancels the connection
@@ -1081,10 +1104,8 @@ class ConnectionApp:
             self.canvas.delete(self.temp_line)
         # Use scaled coordinates for the temp line
         start_x, start_y = p.x * zoom, p.y * zoom
-        # Convert mouse coordinates to canvas coordinates to handle panning
-        canvas_x = self.canvas.canvasx(x)
-        canvas_y = self.canvas.canvasy(y)
-        self.temp_line = self.canvas.create_line(start_x, start_y, canvas_x, canvas_y, 
+        # x and y are already canvas coordinates from the caller
+        self.temp_line = self.canvas.create_line(start_x, start_y, x, y, 
                                                fill=COLORS['accent'], dash=(8, 4), width=3,
                                                tags=("temp_connection",))
           # Update status
