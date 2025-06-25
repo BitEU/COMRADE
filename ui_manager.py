@@ -107,12 +107,12 @@ class UIManager:
     def create_toolbar(self, parent):
         """Create toolbar with action buttons"""
         frame = ttk.Frame(parent, style="Toolbar.TFrame")
-        
-        # Button configurations
+          # Button configurations
         buttons = [
             ("👤 Add Person", self.app.add_person, COLORS['primary']),
             ("💾 Save", self.app.save_data, COLORS['success']),
             ("📁 Load", self.app.load_data, COLORS['accent']),
+            ("🖼️ Export PNG", self.app.export_to_png, COLORS['secondary']),
             ("🗑️ Clear All", self.app.clear_all, COLORS['danger'])
         ]
         
