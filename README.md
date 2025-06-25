@@ -40,6 +40,7 @@ A modern, interactive Python GUI application for visualizing and managing relati
   - Alias/Nickname
   - Address
   - Phone Number
+  - File attachments (images, documents, etc.)
 
 - **🔗 Connection Visualization**: Create and manage labeled relationships between people
   - Interactive connection creation via right-click
@@ -60,9 +61,10 @@ A modern, interactive Python GUI application for visualizing and managing relati
   - Auto-layout for new people
 
 - **💾 Data Persistence**: Robust data management with:
-  - Save/Load data in CSV format
-  - Import/Export functionality
-  - Automatic positioning preservation
+  - Save/Load projects in ZIP format with file attachments
+  - Backward compatibility with legacy CSV format
+  - Automatic file organization and cleanup
+  - Preserves all relationships and positioning
 
 - **⌨️ Keyboard Controls**: Full keyboard support for efficient workflow
 
@@ -72,6 +74,7 @@ A modern, interactive Python GUI application for visualizing and managing relati
 
 - Python 3.7 or higher
 - tkinter (usually included with Python)
+- Optional: Pillow (PIL) for PNG export functionality
 
 ### Installation
 
@@ -81,7 +84,10 @@ git clone <repository-url>
 cd COMRADE
 ```
 
-2. No additional dependencies required! The application uses only Python standard library modules.
+2. Install dependencies:
+```bash
+pip install -r requirements.txt
+```
 
 ### Running the Application
 
@@ -121,8 +127,14 @@ python main.py
 
 ### Data Management
 
-- **💾 Save**: Export your network to a CSV file
-- **📁 Load**: Import a previously saved network
+- **💾 Save Project**: Export your network to a ZIP file containing:
+  - Network data (CSV format)
+  - All attached images and files
+  - Preserves all relationships and positioning
+- **📁 Load Project**: Import a previously saved project
+  - Supports new ZIP format with file attachments
+  - Backward compatible with legacy CSV files
+  - Automatically extracts attached files to local storage
 - **🗑️ Clear All**: Remove all people and connections (with confirmation)
 
 ## 🎨 Interface Overview

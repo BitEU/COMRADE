@@ -4,7 +4,8 @@ Dialog classes for the People Connection Visualizer
 """
 
 import tkinter as tk
-from tkinter import messagebox
+from tkinter import messagebox, filedialog
+import os
 from constants import COLORS
 
 class PersonDialog:
@@ -15,7 +16,7 @@ class PersonDialog:
         self.result = None
         self.dialog = tk.Toplevel(parent)
         self.dialog.title(f"✏️ {title}")
-        self.dialog.geometry("450x800")
+        self.dialog.geometry("450x900")
         self.dialog.configure(bg=COLORS['background'])
         self.dialog.transient(parent)
         self.dialog.grab_set()
@@ -24,8 +25,8 @@ class PersonDialog:
         # Center the dialog
         self.dialog.update_idletasks()
         x = (self.dialog.winfo_screenwidth() // 2) - (450 // 2)
-        y = (self.dialog.winfo_screenheight() // 2) - (800 // 2)
-        self.dialog.geometry(f"450x800+{x}+{y}")
+        y = (self.dialog.winfo_screenheight() // 2) - (900 // 2)
+        self.dialog.geometry(f"450x900+{x}+{y}")
         
         # Main container
         main_frame = tk.Frame(self.dialog, bg=COLORS['background'])
@@ -69,7 +70,7 @@ class PersonDialog:
                                   fg=COLORS['text_primary'],
                                   bg=COLORS['surface'],
                                   anchor="w")
-            field_label.grid(row=i*2, column=0, sticky="w", pady=(15 if i > 0 else 0, 8))
+            field_label.grid(row=i*2, column=0, sticky="w", pady=(8 if i > 0 else 0, 4))
             
             # Entry with modern styling
             entry = tk.Entry(form_inner, 
@@ -82,7 +83,7 @@ class PersonDialog:
                            highlightcolor=COLORS['primary'],
                            highlightbackground=COLORS['border'],
                            width=35)
-            entry.grid(row=i*2+1, column=0, sticky="ew", pady=(0, 10))
+            entry.grid(row=i*2+1, column=0, sticky="ew", pady=(0, 6))
             
             if field in kwargs:
                 entry.insert(0, kwargs[field])
@@ -91,14 +92,52 @@ class PersonDialog:
         
         # Configure grid weights
         form_inner.columnconfigure(0, weight=1)
-        
-        # Required field note
+          # Required field note
         note_label = tk.Label(form_inner,
                              text="* Required fields",
                              font=("Segoe UI", 9),
                              fg=COLORS['text_secondary'],
                              bg=COLORS['surface'])
-        note_label.grid(row=len(fields)*2, column=0, sticky="w", pady=(15, 0))
+        note_label.grid(row=len(fields)*2, column=0, sticky="w", pady=(10, 0))
+        
+        # File attachments section
+        files_label = tk.Label(form_inner,
+                              text="📎 Attached Files:",
+                              font=("Segoe UI", 11, "bold"),
+                              fg=COLORS['text_primary'],
+                              bg=COLORS['surface'],
+                              anchor="w")
+        files_label.grid(row=len(fields)*2+1, column=0, sticky="w", pady=(12, 4))
+        
+        # Files frame
+        files_frame = tk.Frame(form_inner, bg=COLORS['surface'])
+        files_frame.grid(row=len(fields)*2+2, column=0, sticky="ew", pady=(0, 10))
+        
+        # File list and buttons
+        self.files_list = tk.Listbox(files_frame, height=3, font=("Segoe UI", 10),
+                                    bg='white', fg=COLORS['text_primary'],
+                                    selectbackground=COLORS['primary'])
+        self.files_list.pack(fill=tk.X, pady=(0, 5))
+        
+        files_btn_frame = tk.Frame(files_frame, bg=COLORS['surface'])
+        files_btn_frame.pack(fill=tk.X)
+        
+        add_file_btn = tk.Button(files_btn_frame, text="+ Add File",
+                                command=self.add_file, font=("Segoe UI", 9),
+                                bg=COLORS['primary'], fg='white', relief=tk.FLAT,
+                                padx=10, pady=4, cursor='hand2')
+        add_file_btn.pack(side=tk.LEFT, padx=(0, 5))
+        
+        remove_file_btn = tk.Button(files_btn_frame, text="Remove",
+                                   command=self.remove_file, font=("Segoe UI", 9),
+                                   bg=COLORS['text_secondary'], fg='white', relief=tk.FLAT,
+                                   padx=10, pady=4, cursor='hand2')
+        remove_file_btn.pack(side=tk.LEFT)
+        
+        # Initialize files list with existing files
+        self.attached_files = kwargs.get('files', [])
+        for file_path in self.attached_files:
+            self.files_list.insert(tk.END, os.path.basename(file_path))
         
         # Button frame
         button_frame = tk.Frame(main_frame, bg=COLORS['background'])
@@ -139,6 +178,25 @@ class PersonDialog:
         self.dialog.bind('<Return>', lambda e: self.ok())
         self.dialog.bind('<Escape>', lambda e: self.cancel())
     
+    def add_file(self):
+        """Handle adding a file attachment"""
+        file_path = filedialog.askopenfilename(
+            title="Select file to attach",
+            filetypes=[("All files", "*.*"), ("Images", "*.png *.jpg *.jpeg *.gif *.bmp"),
+                      ("Documents", "*.pdf *.txt *.doc *.docx"), ("Videos", "*.mp4 *.avi *.mov")]
+        )
+        if file_path:
+            self.attached_files.append(file_path)
+            self.files_list.insert(tk.END, os.path.basename(file_path))
+    
+    def remove_file(self):
+        """Handle removing a file attachment"""
+        selection = self.files_list.curselection()
+        if selection:
+            idx = selection[0]
+            self.files_list.delete(idx)
+            del self.attached_files[idx]
+    
     def _add_button_hover_effects(self, ok_btn, cancel_btn):
         """Add hover effects to buttons"""
         def on_ok_enter(e):
@@ -163,6 +221,7 @@ class PersonDialog:
             return
             
         self.result = {field: entry.get().strip() for field, entry in self.entries.items()}
+        self.result['files'] = self.attached_files[:]  # Copy the files list
         self.dialog.destroy()
         
     def cancel(self):

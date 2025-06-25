@@ -17,6 +17,7 @@ class Person:
         self.y = 0
         self.color = color  # Index into CARD_COLORS array
         self.connections = {}  # {person_id: label}
+        self.files = []  # List of attached file paths
     
     def __repr__(self):
         return f"Person(name='{self.name}', connections={len(self.connections)})"
@@ -24,7 +25,6 @@ class Person:
     def add_connection(self, person_id, label):
         """Add a connection to another person"""
         self.connections[person_id] = label
-    
     def remove_connection(self, person_id):
         """Remove a connection to another person"""
         if person_id in self.connections:
@@ -49,7 +49,8 @@ class Person:
             'x': self.x,
             'y': self.y,
             'color': self.color,
-            'connections': self.connections
+            'connections': self.connections,
+            'files': self.files
         }
     
     @classmethod
@@ -66,4 +67,5 @@ class Person:
         person.x = data.get('x', 0)
         person.y = data.get('y', 0)
         person.connections = data.get('connections', {})
+        person.files = data.get('files', [])
         return person

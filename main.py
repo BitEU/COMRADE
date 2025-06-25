@@ -6,6 +6,10 @@ from datetime import datetime
 import os
 from collections import defaultdict
 import logging
+import zipfile
+import shutil
+import tempfile
+import json
 
 # Try to import PIL for PNG export functionality
 try:
@@ -48,6 +52,10 @@ class ConnectionApp:
         
         logger.info("Setting up UI")
         self.setup_ui()
+        
+        # Clean up old extracted files on startup
+        self.cleanup_old_files()
+        
         logger.info("ConnectionApp initialized successfully")
     
     def setup_styles(self):
@@ -103,8 +111,8 @@ class ConnectionApp:
         toolbar.pack(fill=tk.X, pady=(0, 15))
           # Create modern buttons with icons        
         self.create_modern_button(toolbar, "👤 Add Person", self.add_person, COLORS['primary'])
-        self.create_modern_button(toolbar, "💾 Save", self.save_data, COLORS['accent'])
-        self.create_modern_button(toolbar, "📁 Load", self.load_data, COLORS['accent'])
+        self.create_modern_button(toolbar, "💾 Save Project", self.save_data, COLORS['accent'])
+        self.create_modern_button(toolbar, "📁 Load Project", self.load_data, COLORS['accent'])
         self.create_modern_button(toolbar, "🖼️ Export PNG", self.export_to_png, COLORS['secondary'])
         self.create_modern_button(toolbar, "🗑️ Clear All", self.clear_all, COLORS['danger'])
         
@@ -327,7 +335,10 @@ class ConnectionApp:
         self.root.wait_window(dialog.dialog)  # Wait for dialog to close
         logger.info(f"Dialog result: {dialog.result}")
         if dialog.result:
+            # Extract files separately since Person.__init__ doesn't accept it
+            files = dialog.result.pop('files', [])
             person = Person(**dialog.result)
+            person.files = files  # Set files after creation
             person_id = self.next_id
             self.next_id += 1
             logger.info(f"Creating person with ID {person_id}: {person.name}")
@@ -379,9 +390,20 @@ class ConnectionApp:
         # Filter out empty lines
         info_lines = [line for line in info_lines if line.strip()]
         
-        # Calculate modern card dimensions
-        card_width = max(max(len(line) for line in info_lines) * 9, 200) * zoom
-        card_height = max(len(info_lines) * 25 + 40, 120) * zoom
+        # Check for image files
+        image_file = None
+        image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'}
+        if hasattr(person, 'files') and person.files:
+            for file_path in person.files:
+                if os.path.exists(file_path) and os.path.splitext(file_path.lower())[1] in image_extensions:
+                    image_file = file_path
+                    break
+        
+        # Calculate modern card dimensions with image consideration
+        base_width = max(max(len(line) for line in info_lines) * 9, 200)
+        image_width = 120 if image_file else 0  # Reserve space for image
+        card_width = (base_width + image_width + (20 if image_file else 0)) * zoom  # Add padding between text and image
+        card_height = max(len(info_lines) * 25 + 40, 120, 140 if image_file else 120) * zoom  # Ensure minimum height for image
         
         half_width = card_width // 2
         half_height = card_height // 2
@@ -454,7 +476,18 @@ class ConnectionApp:
         )
         self.store_text_font_size(name_text, ("Segoe UI", 11, "bold"))  # Store original size
         group.append(name_text)
-        
+        # File indicator if files are attached
+        if getattr(person, 'files', []):
+            file_icon = self.canvas.create_text(
+                avatar_x + avatar_size + int(10 * zoom) + int(8 * zoom) + self.canvas.bbox(name_text)[2] - self.canvas.bbox(name_text)[0],
+                avatar_y,
+                text="📎",
+                anchor="w", font=("Segoe UI Emoji", int(10 * zoom)),
+                fill='white',
+                tags=(f"person_{person_id}", "person", "file_icon")
+            )
+            self.store_text_font_size(file_icon, ("Segoe UI Emoji", 10))
+            group.append(file_icon)
         # Details section
         details_start_y = y - half_height + header_height + int(15 * zoom)
         line_height = int(20 * zoom)
@@ -490,6 +523,56 @@ class ConnectionApp:
                 self.store_text_font_size(text_item, ("Segoe UI", 9))  # Store original size
                 group.extend([icon_item, text_item])
                 current_y += line_height
+        
+        # Display image if available
+        if image_file and PIL_AVAILABLE:
+            try:
+                # Load and resize image
+                pil_image = Image.open(image_file)
+                
+                # Calculate image dimensions (maintain aspect ratio)
+                max_img_width = int(100 * zoom)
+                max_img_height = int((card_height - header_height - 20) * 0.9)  # Leave some padding
+                
+                # Calculate scaling to fit within bounds
+                img_ratio = pil_image.width / pil_image.height
+                if max_img_width / max_img_height > img_ratio:
+                    # Height is the limiting factor
+                    img_height = max_img_height
+                    img_width = int(img_height * img_ratio)
+                else:
+                    # Width is the limiting factor
+                    img_width = max_img_width
+                    img_height = int(img_width / img_ratio)
+                
+                # Resize image
+                pil_image = pil_image.resize((img_width, img_height), Image.Resampling.LANCZOS)
+                
+                # Convert to PhotoImage using ImageTk
+                from PIL import ImageTk
+                photo = ImageTk.PhotoImage(pil_image)
+                
+                # Position image on the right side of the card
+                img_x = x + half_width - img_width//2 - int(10 * zoom)  # Right side with padding
+                img_y = y - half_height + header_height + img_height//2 + int(10 * zoom)  # Below header with padding
+                
+                # Create image on canvas
+                img_item = self.canvas.create_image(
+                    img_x, img_y,
+                    image=photo,
+                    anchor="center",
+                    tags=(f"person_{person_id}", "person", "image")
+                )
+                
+                # Store reference to prevent garbage collection
+                if not hasattr(self, 'image_refs'):
+                    self.image_refs = {}
+                self.image_refs[img_item] = photo
+                
+                group.append(img_item)
+                
+            except Exception as e:
+                logger.error(f"Failed to load image {image_file}: {e}")
         
         # Add subtle border radius effect (visual enhancement)
         corner_size = int(4 * zoom)
@@ -1024,22 +1107,20 @@ class ConnectionApp:
                 mid_x = (x1 + x2) / 2
                 mid_y = (y1 + y2) / 2
                 self.canvas.coords(label_bg, mid_x - 30, mid_y - 10, mid_x + 30, mid_y + 10)
-                self.canvas.coords(label_text, mid_x, mid_y)        
-        # Ensure grid stays behind all elements after updating connections
+                self.canvas.coords(label_text, mid_x, mid_y)          # Ensure grid stays behind all elements after updating connections
         self.canvas.tag_lower("grid")
-            
+    
     def edit_person(self, person_id):
         person = self.people[person_id]
         dialog = PersonDialog(self.root, "Edit Person", 
                             name=person.name, dob=person.dob, 
-                            alias=person.alias, address=person.address, 
-                            phone=person.phone)
+                            alias=person.alias, address=person.address,                            phone=person.phone, files=person.files)
         self.root.wait_window(dialog.dialog)  # Wait for dialog to close
         if dialog.result:
             # Update person data
             for key, value in dialog.result.items():
                 setattr(person, key, value)
-              # Update display
+            # Update display
             self.refresh_person_widget(person_id)
     
     def refresh_person_widget(self, person_id):
@@ -1049,9 +1130,12 @@ class ConnectionApp:
             # Clean up font size tracking for text items
             if item in self.original_font_sizes:
                 del self.original_font_sizes[item]
-              # Create new widget
+            # Clean up image references
+            if hasattr(self, 'image_refs') and item in self.image_refs:
+                del self.image_refs[item]
+        # Create new widget
         self.create_person_widget(person_id)
-          # Restore connections to back
+        # Restore connections to back
         self.canvas.tag_lower("connection")
         # Ensure grid stays behind all elements
         self.canvas.tag_lower("grid")
@@ -1090,64 +1174,238 @@ class ConnectionApp:
         self.canvas.tag_lower("grid")
 
     def save_data(self):
-        filename = filedialog.asksaveasfilename(defaultextension=".csv",
-                                              filetypes=[("CSV files", "*.csv")])
-        if filename:
-            with open(filename, 'w', newline='') as f:
-                writer = csv.writer(f)
-                writer.writerow(['ID', 'Name', 'DOB', 'Alias', 'Address', 'Phone', 'X', 'Y', 'Color'])
-                # Save people
-                for person_id, person in self.people.items():
-                    writer.writerow([person_id, person.name, person.dob, person.alias, 
-                                   person.address, person.phone, person.x, person.y, person.color])
-                writer.writerow(['CONNECTIONS'])
-                writer.writerow(['From_ID', 'To_ID', 'Label'])
-                # Save connections
-                saved = set()
-                for id1, person in self.people.items():
-                    for id2, label in person.connections.items():
-                        key = (min(id1, id2), max(id1, id2))
-                        if key not in saved:
-                            writer.writerow([id1, id2, label])
-                            saved.add(key)
-            messagebox.showinfo("Success", "Data saved successfully!")
+        """Save data as a ZIP file containing CSV and all attached files"""
+        filename = filedialog.asksaveasfilename(
+            defaultextension=".zip",
+            filetypes=[("COMRADE files", "*.zip"), ("All files", "*.*")]
+        )
+        if not filename:
+            return
+            
+        try:
+            with tempfile.TemporaryDirectory() as temp_dir:
+                # Create CSV file in temp directory
+                csv_path = os.path.join(temp_dir, "data.csv")
+                file_mapping = {}  # Maps original paths to ZIP internal paths
+                
+                with open(csv_path, 'w', newline='', encoding='utf-8') as f:
+                    writer = csv.writer(f)
+                    writer.writerow(['ID', 'Name', 'DOB', 'Alias', 'Address', 'Phone', 'X', 'Y', 'Color', 'Files'])
+                    
+                    # Save people
+                    for person_id, person in self.people.items():
+                        # Process attached files
+                        zip_file_paths = []
+                        if hasattr(person, 'files') and person.files:
+                            for file_path in person.files:
+                                if os.path.exists(file_path):
+                                    # Create unique filename in ZIP
+                                    filename_only = os.path.basename(file_path)
+                                    name, ext = os.path.splitext(filename_only)
+                                    zip_internal_path = f"files/{person_id}_{name}{ext}"
+                                    
+                                    # Handle duplicate filenames
+                                    counter = 1
+                                    while zip_internal_path in file_mapping.values():
+                                        zip_internal_path = f"files/{person_id}_{name}_{counter}{ext}"
+                                        counter += 1
+                                    
+                                    file_mapping[file_path] = zip_internal_path
+                                    zip_file_paths.append(zip_internal_path)
+                        
+                        # Convert file paths list to JSON string for CSV storage
+                        files_json = json.dumps(zip_file_paths) if zip_file_paths else ""
+                        
+                        writer.writerow([
+                            person_id, person.name, person.dob, person.alias, 
+                            person.address, person.phone, person.x, person.y, 
+                            person.color, files_json
+                        ])
+                    
+                    writer.writerow(['CONNECTIONS'])
+                    writer.writerow(['From_ID', 'To_ID', 'Label'])
+                    
+                    # Save connections
+                    saved = set()
+                    for id1, person in self.people.items():
+                        for id2, label in person.connections.items():
+                            key = (min(id1, id2), max(id1, id2))
+                            if key not in saved:
+                                writer.writerow([id1, id2, label])
+                                saved.add(key)
+                
+                # Create ZIP file
+                with zipfile.ZipFile(filename, 'w', zipfile.ZIP_DEFLATED) as zipf:
+                    # Add CSV file
+                    zipf.write(csv_path, "data.csv")
+                    
+                    # Add all attached files
+                    for original_path, zip_path in file_mapping.items():
+                        if os.path.exists(original_path):
+                            zipf.write(original_path, zip_path)
+                        else:
+                            logger.warning(f"File not found: {original_path}")
+            
+            messagebox.showinfo("Success", f"Data saved successfully to {os.path.basename(filename)}!\n\nContains:\n• Network data (CSV)\n• {len(file_mapping)} attached files")
+            
+        except Exception as e:
+            logger.error(f"Error saving data: {e}")
+            messagebox.showerror("Error", f"Failed to save data: {str(e)}")
             
     def load_data(self):
-        filename = filedialog.askopenfilename(filetypes=[("CSV files", "*.csv")])
-        if filename:
-            self.clear_all()
-            with open(filename, 'r') as f:
-                reader = csv.reader(f)
-                header = next(reader)
-                connections_section = False
-                for row in reader:
-                    if row and row[0] == 'CONNECTIONS':
-                        connections_section = True
-                        next(reader)  # Skip connection header
-                        continue
-                    if connections_section:
-                        if len(row) >= 3:
-                            id1, id2, label = int(row[0]), int(row[1]), row[2]                            
-                            if id1 in self.people and id2 in self.people:
-                                self.people[id1].connections[id2] = label
-                                self.people[id2].connections[id1] = label
-                            else:
-                                logger.warning(f"Connection references missing person: {id1} or {id2}")
-                    else:
-                        if len(row) >= 8:
-                            person_id = int(row[0])
-                            person = Person(row[1], row[2], row[3], row[4], row[5])
-                            person.x = float(row[6])
-                            person.y = float(row[7])
-                            # Handle color field for backward compatibility
-                            if len(row) >= 9:
-                                person.color = int(row[8])
-                            else:
-                                person.color = 0
-                            self.people[person_id] = person
-                            self.next_id = max(self.next_id, person_id + 1)
+        """Load data from a ZIP file containing CSV and attached files"""
+        filename = filedialog.askopenfilename(
+            filetypes=[("COMRADE files", "*.zip"), ("CSV files", "*.csv"), ("All files", "*.*")]
+        )
+        if not filename:
+            return
+            
+        try:
+            # Handle both ZIP and legacy CSV files
+            if filename.lower().endswith('.zip'):
+                self._load_from_zip(filename)
+            else:
+                self._load_legacy_csv(filename)
+                
+        except Exception as e:
+            logger.error(f"Error loading data: {e}")
+            messagebox.showerror("Error", f"Failed to load data: {str(e)}")
+    
+    def _load_from_zip(self, zip_filename):
+        """Load data from ZIP file format"""
+        self.clear_all()
+        
+        with tempfile.TemporaryDirectory() as temp_dir:
+            with zipfile.ZipFile(zip_filename, 'r') as zipf:
+                # Extract all files to temp directory
+                zipf.extractall(temp_dir)
+                
+                # Read CSV data
+                csv_path = os.path.join(temp_dir, "data.csv")
+                if not os.path.exists(csv_path):
+                    raise ValueError("Invalid COMRADE file: data.csv not found")
+                
+                # Create a permanent directory for extracted files
+                app_data_dir = os.path.expanduser("~/.comrade_files")
+                if not os.path.exists(app_data_dir):
+                    os.makedirs(app_data_dir)
+                
+                # Create unique subdirectory for this load
+                import time
+                load_id = str(int(time.time()))
+                files_dir = os.path.join(app_data_dir, f"load_{load_id}")
+                os.makedirs(files_dir, exist_ok=True)
+                
+                with open(csv_path, 'r', encoding='utf-8') as f:
+                    reader = csv.reader(f)
+                    header = next(reader)
+                    connections_section = False
+                    
+                    for row in reader:
+                        if row and row[0] == 'CONNECTIONS':
+                            connections_section = True
+                            next(reader)  # Skip connection header
+                            continue
+                            
+                        if connections_section:
+                            if len(row) >= 3:
+                                id1, id2, label = int(row[0]), int(row[1]), row[2]                            
+                                if id1 in self.people and id2 in self.people:
+                                    self.people[id1].connections[id2] = label
+                                    self.people[id2].connections[id1] = label
+                                else:
+                                    logger.warning(f"Connection references missing person: {id1} or {id2}")
+                        else:
+                            if len(row) >= 8:
+                                person_id = int(row[0])
+                                person = Person(row[1], row[2], row[3], row[4], row[5])
+                                person.x = float(row[6])
+                                person.y = float(row[7])
+                                
+                                # Handle color field
+                                if len(row) >= 9:
+                                    person.color = int(row[8])
+                                else:
+                                    person.color = 0
+                                
+                                # Handle files field (new format)
+                                if len(row) >= 10 and row[9]:
+                                    try:
+                                        zip_file_paths = json.loads(row[9])
+                                        person.files = []
+                                        
+                                        # Copy files from temp to permanent location and update paths
+                                        for zip_path in zip_file_paths:
+                                            temp_file_path = os.path.join(temp_dir, zip_path)
+                                            if os.path.exists(temp_file_path):
+                                                # Create permanent file path
+                                                filename_only = os.path.basename(zip_path)
+                                                permanent_path = os.path.join(files_dir, filename_only)
+                                                
+                                                # Copy file to permanent location
+                                                shutil.copy2(temp_file_path, permanent_path)
+                                                person.files.append(permanent_path)
+                                            else:
+                                                logger.warning(f"Attached file not found in ZIP: {zip_path}")
+                                    except json.JSONDecodeError:
+                                        logger.warning(f"Invalid files data for person {person_id}")
+                                        person.files = []
+                                else:
+                                    person.files = []
+                                
+                                self.people[person_id] = person
+                                self.next_id = max(self.next_id, person_id + 1)
+                
                 self.redraw_all()
-                messagebox.showinfo("Success", "Data loaded successfully!")
+                
+                # Count extracted files
+                total_files = sum(len(person.files) for person in self.people.values())
+                messagebox.showinfo("Success", f"Data loaded successfully!\n\nLoaded:\n• {len(self.people)} people\n• {total_files} attached files\n\nFiles extracted to: {files_dir}")
+    
+    def _load_legacy_csv(self, csv_filename):
+        """Load data from legacy CSV format (backward compatibility)"""
+        self.clear_all()
+        
+        with open(csv_filename, 'r', encoding='utf-8') as f:
+            reader = csv.reader(f)
+            header = next(reader)
+            connections_section = False
+            
+            for row in reader:
+                if row and row[0] == 'CONNECTIONS':
+                    connections_section = True
+                    next(reader)  # Skip connection header
+                    continue
+                    
+                if connections_section:
+                    if len(row) >= 3:
+                        id1, id2, label = int(row[0]), int(row[1]), row[2]                            
+                        if id1 in self.people and id2 in self.people:
+                            self.people[id1].connections[id2] = label
+                            self.people[id2].connections[id1] = label
+                        else:
+                            logger.warning(f"Connection references missing person: {id1} or {id2}")
+                else:
+                    if len(row) >= 8:
+                        person_id = int(row[0])
+                        person = Person(row[1], row[2], row[3], row[4, row[5]])
+                        person.x = float(row[6])
+                        person.y = float(row[7])
+                        
+                        # Handle color field for backward compatibility
+                        if len(row) >= 9:
+                            person.color = int(row[8])
+                        else:
+                            person.color = 0
+                            
+                        # No files in legacy format
+                        person.files = []
+                        
+                        self.people[person_id] = person
+                        self.next_id = max(self.next_id, person_id + 1)
+            
+            self.redraw_all()
+            messagebox.showinfo("Success", "Legacy CSV data loaded successfully!\n\nNote: Use the new ZIP format for file attachments.")
     
     def export_to_png(self):
         """Export the current network diagram to PNG format at high DPI"""
@@ -1555,6 +1813,33 @@ class ConnectionApp:
                     size = int(part)
                     break
         self.original_font_sizes[text_item] = size
+
+    def cleanup_old_files(self):
+        """Clean up old extracted files to save disk space"""
+        try:
+            app_data_dir = os.path.expanduser("~/.comrade_files")
+            if not os.path.exists(app_data_dir):
+                return
+                
+            import time
+            current_time = time.time()
+            # Remove directories older than 30 days
+            max_age = 30 * 24 * 60 * 60  # 30 days in seconds
+            
+            for item in os.listdir(app_data_dir):
+                item_path = os.path.join(app_data_dir, item)
+                if os.path.isdir(item_path) and item.startswith("load_"):
+                    try:
+                        # Extract timestamp from directory name
+                        timestamp = int(item.replace("load_", ""))
+                        if current_time - timestamp > max_age:
+                            shutil.rmtree(item_path)
+                            logger.info(f"Cleaned up old files directory: {item}")
+                    except (ValueError, OSError) as e:
+                        logger.warning(f"Could not clean up directory {item}: {e}")
+                        
+        except Exception as e:
+            logger.warning(f"Error during cleanup: {e}")
 
 if __name__ == "__main__":
     logger.info("Starting application")
