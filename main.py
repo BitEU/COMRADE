@@ -1168,10 +1168,9 @@ class ConnectionApp:
         if not filename:
             return
             
-        try:
-            # High DPI settings for crisp output
-            dpi_scale = 3.0  # 3x scaling for high DPI (300 DPI equivalent)
-            target_dpi = 300  # Target DPI for print quality
+        try:            # High DPI settings for crisp output
+            dpi_scale = 6.0  # 6x scaling for high DPI (600 DPI equivalent)
+            target_dpi = 600  # Target DPI for print quality
             
             # Use the fixed canvas dimensions scaled up for high DPI
             base_width = self.fixed_canvas_width
