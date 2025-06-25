@@ -1594,7 +1594,14 @@ class ConnectionApp:
             messagebox.showinfo("Success", "Legacy CSV data loaded successfully!\n\nNote: Use the new ZIP format for file attachments.")
     
     def export_to_png(self):
-        """Export the current network diagram to PNG format at high DPI"""
+        """Export the current network diagram to PNG format at high DPI
+        
+        This function exports the complete network visualization including:
+        - All person cards with their information
+        - Connection lines and labels
+        - Attached images for people (if any)
+        - High DPI quality for crisp output
+        """
         if not PIL_AVAILABLE:
             messagebox.showerror("Error", "PIL (Pillow) library is not installed.\n\nTo use PNG export, please install it with:\npip install Pillow")
             return
@@ -1700,9 +1707,21 @@ class ConnectionApp:
                     f"Phone: {person.phone}" if person.phone else ""
                 ]
                 info_lines = [line for line in info_lines if line.strip()]
-                  # Calculate card dimensions with DPI scaling
-                card_width = max(max(len(line) for line in info_lines) * 9, 200) * zoom
-                card_height = max(len(info_lines) * 25 + 40, 120) * zoom
+                
+                # Check for image files (same logic as canvas display)
+                image_file = None
+                image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'}
+                if hasattr(person, 'files') and person.files:
+                    for file_path in person.files:
+                        if os.path.exists(file_path) and os.path.splitext(file_path.lower())[1] in image_extensions:
+                            image_file = file_path
+                            break
+                
+                # Calculate card dimensions with DPI scaling and image consideration
+                base_width = max(max(len(line) for line in info_lines) * 9, 200)
+                image_width = 120 if image_file else 0  # Reserve space for image
+                card_width = (base_width + image_width + (20 if image_file else 0)) * zoom  # Add padding between text and image
+                card_height = max(len(info_lines) * 25 + 40, 120, 140 if image_file else 120) * zoom  # Ensure minimum height for image
                 
                 half_width = int(card_width // 2)
                 half_height = int(card_height // 2)
@@ -1783,6 +1802,48 @@ class ConnectionApp:
                         draw.text((data_x, current_y), value, 
                                 fill=COLORS['text_primary'], font=detail_font)
                         current_y += line_height
+                
+                # Draw attached image if available
+                if hasattr(person, 'files') and person.files:
+                    image_file = None
+                    image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'}
+                    for file_path in person.files:
+                        if os.path.exists(file_path) and os.path.splitext(file_path.lower())[1] in image_extensions:
+                            image_file = file_path
+                            break
+                    
+                    if image_file:
+                        try:
+                            # Load and resize image for export
+                            person_image = Image.open(image_file)
+                            
+                            # Calculate image dimensions (maintain aspect ratio)
+                            base_max_width = int(100 * dpi_scale)  # Scaled for high DPI
+                            base_max_height = int(100 * dpi_scale)  # Scaled for high DPI
+                            
+                            # Calculate scaling to fit within bounds
+                            img_ratio = person_image.width / person_image.height
+                            if base_max_width / base_max_height > img_ratio:
+                                # Height is the limiting factor
+                                img_height = base_max_height
+                                img_width = int(img_height * img_ratio)
+                            else:
+                                # Width is the limiting factor
+                                img_width = base_max_width
+                                img_height = int(img_width / img_ratio)
+                            
+                            # Resize the image
+                            person_image = person_image.resize((img_width, img_height), Image.Resampling.LANCZOS)
+                            
+                            # Position image on the right side of the card
+                            img_x = x + half_width - img_width//2 - int(10 * dpi_scale)  # Right side with padding
+                            img_y = y - half_height + header_height + img_height//2 + int(10 * dpi_scale)  # Below header with padding
+                            
+                            # Paste the image onto the main image
+                            image.paste(person_image, (img_x - img_width//2, img_y - img_height//2))
+                            
+                        except Exception as e:
+                            logger.error(f"Failed to include image {image_file} in PNG export: {e}")
             
             # Save the image with high DPI information
             image.save(filename, 'PNG', dpi=(target_dpi, target_dpi))
