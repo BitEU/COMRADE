@@ -1,1 +1,2 @@
 Pillow>=8.0.0
+PyInstaller>=5.0.0
