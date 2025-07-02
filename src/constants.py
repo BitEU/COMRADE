@@ -3,6 +3,8 @@
 Constants and configuration for the People Connection Visualizer
 """
 
+COMRADE_VERSION = "0.6.5"
+
 # Modern color scheme
 COLORS = {
     'primary': '#2563eb',      # Modern blue
