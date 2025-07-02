@@ -10,6 +10,9 @@ import zipfile
 import shutil
 import tempfile
 import json
+import urllib.request
+import urllib.error
+import threading
 from functools import lru_cache
 
 # Try to import PIL for PNG export functionality
@@ -22,11 +25,15 @@ except ImportError:
 # Import from supporting modules
 from constants import COLORS, CARD_COLORS
 from models import Person
-from dialogs import PersonDialog, ConnectionLabelDialog
+from dialogs import PersonDialog, ConnectionLabelDialog, VersionUpdateDialog, NoUpdateDialog
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
+
+COMRADE_VERSION = "0.6.3"
+
+
 
 class ConnectionApp:
     def __init__(self, root):
@@ -66,6 +73,9 @@ class ConnectionApp:
         
         # Clean up old extracted files on startup
         self.cleanup_old_files()
+        
+        # Check for updates automatically on startup (with a delay to let UI load)
+        self.root.after(2000, self.check_for_updates_silently)  # 2 second delay
         
         logger.info("ConnectionApp initialized successfully")
     
@@ -122,9 +132,11 @@ class ConnectionApp:
         toolbar.pack(fill=tk.X, pady=(0, 15))
           # Create modern buttons with icons        
         self.create_modern_button(toolbar, "👤 Add Person", self.add_person, COLORS['primary'])
+        self.create_modern_button(toolbar, "❌ Delete Person", self.delete_person, COLORS['danger'])
         self.create_modern_button(toolbar, "💾 Save Project", self.save_data, COLORS['accent'])
         self.create_modern_button(toolbar, "📁 Load Project", self.load_data, COLORS['accent'])
         self.create_modern_button(toolbar, "🖼️ Export PNG", self.export_to_png, COLORS['secondary'])
+        self.create_modern_button(toolbar, "🔄 Check Updates", self.check_for_updates, COLORS['accent'])
         self.create_modern_button(toolbar, "🗑️ Clear All", self.clear_all, COLORS['danger'])
         
         # Canvas container with modern styling
@@ -448,6 +460,7 @@ class ConnectionApp:
             "🔗 Right-click to link: first person, then target", 
             "✏️ Double-click on a person to edit their information",
             "⌨️ Press 'C' to cycle selected person's color",
+            "❌ Press Delete to remove selected person or connection",
             "🚫 Press Escape to cancel an active connection"
         ]
         
@@ -491,6 +504,74 @@ class ConnectionApp:
             logger.info(f"Created widget for person {person_id}")
         else:
             logger.info("Dialog was cancelled")
+            
+    def delete_person(self):
+        """Delete the currently selected person"""
+        if self.selected_person is None:
+            messagebox.showwarning("No Selection", "Please select a person to delete by clicking on them first.")
+            return
+            
+        person_id = self.selected_person
+        person = self.people[person_id]
+        
+        # Confirm deletion
+        result = messagebox.askyesno(
+            "Confirm Deletion", 
+            f"Are you sure you want to delete '{person.name}'?\n\nThis will also remove all their connections.",
+            icon='warning'
+        )
+        
+        if not result:
+            return
+            
+        logger.info(f"Deleting person {person_id}: {person.name}")
+        
+        # Remove all connections involving this person
+        connections_to_remove = []
+        for other_id in list(person.connections.keys()):
+            if other_id in self.people:
+                # Remove the connection from the other person's connections
+                if person_id in self.people[other_id].connections:
+                    del self.people[other_id].connections[person_id]
+                
+                # Track connection lines to remove
+                connection_key = (min(person_id, other_id), max(person_id, other_id))
+                connections_to_remove.append(connection_key)
+        
+        # Remove connection lines from canvas
+        for connection_key in connections_to_remove:
+            if connection_key in self.connection_lines:
+                elements = self.connection_lines[connection_key]
+                for element in elements:
+                    self.canvas.delete(element)
+                    # Clean up font size tracking for text items
+                    if element in self.original_font_sizes:
+                        del self.original_font_sizes[element]
+                del self.connection_lines[connection_key]
+        
+        # Remove person widget from canvas
+        if person_id in self.person_widgets:
+            widget_items = self.person_widgets[person_id]
+            for item in widget_items:
+                self.canvas.delete(item)
+                # Clean up tracking dictionaries
+                if item in self.original_font_sizes:
+                    del self.original_font_sizes[item]
+                if item in self.original_image_sizes:
+                    del self.original_image_sizes[item]
+            del self.person_widgets[person_id]
+        
+        # Remove from people dictionary
+        del self.people[person_id]
+        
+        # Clear selection
+        self.selected_person = None
+        
+        logger.info(f"Successfully deleted person {person_id}")
+        self.update_status(f"🗑️ Deleted '{person.name}' and their connections")
+        
+        # Update canvas
+        self.canvas.update()
             
     def create_person_widget(self, person_id, zoom=None):
         # Safety check to prevent widget creation during drag operations
@@ -755,7 +836,7 @@ class ConnectionApp:
             # Don't apply hover if this person is selected for connecting
             if self.connecting and self.connection_start == person_id:
                 return
-                
+                 
             # Subtle border highlight effect on hover - no background color changes
             for item in group:
                 if 'shadow' not in self.canvas.gettags(item) and 'corner' not in self.canvas.gettags(item):
@@ -770,7 +851,7 @@ class ConnectionApp:
             # Don't remove hover if this person is selected for connecting
             if self.connecting and self.connection_start == person_id:
                 return
-                
+                 
             # Remove border highlight
             for item in group:
                 if 'shadow' not in self.canvas.gettags(item) and 'corner' not in self.canvas.gettags(item):
@@ -958,7 +1039,7 @@ class ConnectionApp:
         items = self.canvas.find_closest(canvas_x, canvas_y)
         if not items:
             return
-            
+             
         clicked = items[0]
         tags = self.canvas.gettags(clicked)
         
@@ -977,7 +1058,7 @@ class ConnectionApp:
         # Skip mouse move processing during drag operations to prevent interference
         if self.dragging:
             return
-            
+             
         # Throttle mouse move events to improve performance
         current_time = datetime.now().timestamp()
         if hasattr(self, '_last_mouse_move_time'):
@@ -1906,14 +1987,6 @@ class ConnectionApp:
         # Update status
         self.update_status("All data cleared successfully")
 
-    def update_status(self, message):
-        """Update the status bar with a message"""
-        if hasattr(self, 'status_label'):
-            self.status_label.config(text=message)
-            # Auto-clear status after 5 seconds if it's a temporary message
-            if "🔗" in message or "✅" in message or "cancelled" in message:
-                self.root.after(5000, lambda: self.update_status("Ready - Right-click a person to start linking"))
-    
     def apply_hover_to_person(self, person_id):
         """Apply subtle hover effect to a person that preserves text readability"""
         if person_id in self.person_widgets:
@@ -1946,9 +2019,11 @@ class ConnectionApp:
             self.update_status("Connection cancelled with Escape key")
     
     def on_delete_key(self, event):
-        """Handle delete key to remove selected connection"""
+        """Handle delete key to remove selected connection or person"""
         if self.selected_connection:
             self.delete_connection()
+        elif self.selected_person:
+            self.delete_person()
     
     def on_color_cycle_key(self, event):
         """Handle 'c' key to cycle colors of selected person"""
@@ -2095,7 +2170,7 @@ class ConnectionApp:
             app_data_dir = os.path.expanduser("~/.comrade_files")
             if not os.path.exists(app_data_dir):
                 return
-                
+            
             import time
             current_time = time.time()
             # Remove directories older than 30 days
@@ -2223,6 +2298,165 @@ class ConnectionApp:
         # Periodic cache cleanup to prevent memory issues
         if len(updates) > 0:  # Only cleanup when we actually processed images
             self.cleanup_image_cache()
+    
+    def check_for_updates(self):
+        """Check for updates from GitHub releases"""
+        logger.info("Checking for updates...")
+        
+        # Update status using root.after to ensure it's on the main thread
+        self.root.after(0, lambda: self.update_status_safe("🔄 Checking for updates..."))
+        
+        # Run the update check in a separate thread to avoid blocking the UI
+        def check_updates_thread():
+            try:
+                logger.info("Starting background update check...")
+                # Fetch the latest release info from GitHub API
+                url = "https://api.github.com/repos/BitEU/COMRADE/releases/latest"
+                req = urllib.request.Request(url)
+                req.add_header('User-Agent', f'COMRADE/{COMRADE_VERSION}')
+                
+                with urllib.request.urlopen(req, timeout=10) as response:
+                    data = json.loads(response.read().decode())
+                    latest_tag = data.get('tag_name', '').lstrip('v')  # Remove 'v' prefix if present
+                    release_url = data.get('html_url', 'https://github.com/BitEU/COMRADE/releases')
+                    
+                    logger.info(f"Update check completed. Latest version: {latest_tag}")
+                    # Schedule the UI update on the main thread
+                    self.root.after(0, lambda: self.handle_version_check_result(latest_tag, release_url))
+                    
+            except urllib.error.URLError as e:
+                logger.error(f"Network error checking for updates: {e}")
+                self.root.after(0, lambda: self.handle_version_check_error("Network error"))
+            except json.JSONDecodeError as e:
+                logger.error(f"JSON decode error checking for updates: {e}")
+                self.root.after(0, lambda: self.handle_version_check_error("Data parsing error"))
+            except Exception as e:
+                logger.error(f"Unexpected error checking for updates: {e}")
+                self.root.after(0, lambda: self.handle_version_check_error("Unexpected error"))
+        
+        # Start the check in a background thread
+        try:
+            thread = threading.Thread(target=check_updates_thread, daemon=True)
+            thread.start()
+            logger.info("Background update check thread started successfully")
+        except Exception as e:
+            logger.error(f"Failed to start update check thread: {e}")
+            self.root.after(0, lambda: self.handle_version_check_error("Failed to start update check"))
+    
+    def handle_version_check_result(self, latest_version, release_url):
+        """Handle the result of version checking on the main thread"""
+        current_version = COMRADE_VERSION
+        
+        logger.info(f"Current version: {current_version}, Latest version: {latest_version}")
+        
+        if self.is_newer_version(current_version, latest_version):
+            logger.info("New version available!")
+            self.update_status_safe(f"🔄 New version {latest_version} available!")
+            # Show update dialog
+            dialog = VersionUpdateDialog(self.root, current_version, latest_version, release_url)
+            self.root.wait_window(dialog.dialog)
+        else:
+            logger.info("Already up to date")
+            self.update_status_safe("✅ You're up to date!")
+            # Show up-to-date dialog
+            dialog = NoUpdateDialog(self.root, current_version)
+            self.root.wait_window(dialog.dialog)
+    
+    def handle_version_check_error(self, error_type):
+        """Handle version check errors on the main thread"""
+        logger.error(f"Version check failed: {error_type}")
+        self.update_status_safe(f"❌ Update check failed: {error_type}")
+        messagebox.showerror(
+            "Update Check Failed",
+            f"Failed to check for updates: {error_type}\n\n"
+            "Please check your internet connection and try again.\n"
+            "You can also visit https://github.com/BitEU/COMRADE/releases manually.",
+            parent=self.root
+        )
+    
+    def is_newer_version(self, current, latest):
+        """Compare version strings to determine if latest is newer than current"""
+        try:
+            # Parse version strings (e.g., "0.6.3" -> [0, 6, 3])
+            current_parts = [int(x) for x in current.split('.')]
+            latest_parts = [int(x) for x in latest.split('.')]
+            
+            # Pad the shorter version with zeros
+            max_length = max(len(current_parts), len(latest_parts))
+            current_parts.extend([0] * (max_length - len(current_parts)))
+            latest_parts.extend([0] * (max_length - len(latest_parts)))
+            
+            # Compare part by part
+            for i in range(max_length):
+                if latest_parts[i] > current_parts[i]:
+                    return True
+                elif latest_parts[i] < current_parts[i]:
+                    return False
+            
+            return False  # Versions are equal
+            
+        except (ValueError, AttributeError) as e:
+            logger.error(f"Error comparing versions '{current}' and '{latest}': {e}")
+            # If we can't parse versions, assume latest is newer to be safe
+            return latest != current
+    
+    def update_status(self, message):
+        """Update the status bar with a message"""
+        if hasattr(self, 'status_label'):
+            self.status_label.config(text=message)
+            # Auto-clear status after 5 seconds if it's a temporary message
+            if "🔗" in message or "✅" in message or "cancelled" in message:
+                self.root.after(5000, lambda: self.update_status("Ready - Right-click a person to start linking"))
+    
+    def update_status_safe(self, message):
+        """Thread-safe version of update_status that doesn't call update_idletasks"""
+        if hasattr(self, 'status_label'):
+            self.status_label.config(text=message)
+            # Auto-clear status after 5 seconds if it's a temporary message
+            if "🔗" in message or "✅" in message or "cancelled" in message or "❌" in message:
+                self.root.after(5000, lambda: self.update_status_safe("Ready - Right-click a person to start linking"))
+    
+    def check_for_updates_silently(self):
+        """Silently check for updates on startup - only show dialog if update is available"""
+        logger.info("Silently checking for updates on startup...")
+        
+        # Run the update check in a separate thread to avoid blocking the UI
+        def check_updates_thread():
+            try:
+                # Fetch the latest release info from GitHub API
+                url = "https://api.github.com/repos/BitEU/COMRADE/releases/latest"
+                req = urllib.request.Request(url)
+                req.add_header('User-Agent', f'COMRADE/{COMRADE_VERSION}')
+                
+                with urllib.request.urlopen(req, timeout=10) as response:
+                    data = json.loads(response.read().decode())
+                    latest_tag = data.get('tag_name', '').lstrip('v')  # Remove 'v' prefix if present
+                    release_url = data.get('html_url', 'https://github.com/BitEU/COMRADE/releases')
+                    
+                    # Schedule the UI update on the main thread
+                    self.root.after(0, lambda: self.handle_silent_version_check_result(latest_tag, release_url))
+                    
+            except Exception as e:
+                # Silently log errors - don't show error dialogs on startup
+                logger.debug(f"Silent update check failed: {e}")
+        
+        # Start the check in a background thread
+        thread = threading.Thread(target=check_updates_thread, daemon=True)
+        thread.start()
+    
+    def handle_silent_version_check_result(self, latest_version, release_url):
+        """Handle the result of silent version checking - only show dialog if update available"""
+        current_version = COMRADE_VERSION
+        
+        logger.info(f"Silent check - Current version: {current_version}, Latest version: {latest_version}")
+        
+        if self.is_newer_version(current_version, latest_version):
+            logger.info("New version available - showing update dialog")
+            # Show update dialog only if new version is available
+            dialog = VersionUpdateDialog(self.root, current_version, latest_version, release_url)
+            self.root.wait_window(dialog.dialog)
+        else:
+            logger.info("Already up to date - no dialog shown")
 
 if __name__ == "__main__":
     logger.info("Starting application")

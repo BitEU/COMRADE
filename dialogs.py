@@ -343,3 +343,196 @@ class ConnectionLabelDialog:
     def cancel(self):
         """Handle Cancel button click"""
         self.dialog.destroy()
+
+
+class VersionUpdateDialog:
+    """
+    Dialog for showing version update information
+    """
+    def __init__(self, parent, current_version, latest_version, release_url):
+        self.result = None
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title("🔄 Update Available")
+        self.dialog.geometry("400x300")
+        self.dialog.configure(bg=COLORS['background'])
+        self.dialog.transient(parent)
+        self.dialog.grab_set()
+        self.dialog.resizable(False, False)
+        
+        # Center the dialog
+        self.dialog.update_idletasks()
+        x = (self.dialog.winfo_screenwidth() // 2) - (400 // 2)
+        y = (self.dialog.winfo_screenheight() // 2) - (300 // 2)
+        self.dialog.geometry(f"400x300+{x}+{y}")
+        
+        # Main container
+        main_frame = tk.Frame(self.dialog, bg=COLORS['background'])
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=25, pady=25)
+        
+        # Icon and title
+        title_frame = tk.Frame(main_frame, bg=COLORS['background'])
+        title_frame.pack(fill=tk.X, pady=(0, 20))
+        
+        title_label = tk.Label(title_frame,
+                              text="🔄 Update Available",
+                              font=("Segoe UI", 16, "bold"),
+                              bg=COLORS['background'],
+                              fg=COLORS['primary'])
+        title_label.pack()
+        
+        # Version info frame
+        info_frame = tk.Frame(main_frame, bg=COLORS['surface'], relief=tk.FLAT, bd=0)
+        info_frame.pack(fill=tk.X, pady=(0, 20))
+        
+        # Add padding inside info frame
+        info_inner = tk.Frame(info_frame, bg=COLORS['surface'])
+        info_inner.pack(fill=tk.BOTH, expand=True, padx=20, pady=20)
+        
+        # Current version
+        current_label = tk.Label(info_inner,
+                                text=f"Current Version: {current_version}",
+                                font=("Segoe UI", 11),
+                                bg=COLORS['surface'],
+                                fg=COLORS['text_primary'])
+        current_label.pack(anchor=tk.W, pady=(0, 10))
+        
+        # Latest version
+        latest_label = tk.Label(info_inner,
+                               text=f"Latest Version: {latest_version}",
+                               font=("Segoe UI", 11, "bold"),
+                               bg=COLORS['surface'],
+                               fg=COLORS['success'])
+        latest_label.pack(anchor=tk.W, pady=(0, 15))
+        
+        # Description
+        desc_label = tk.Label(info_inner,
+                             text="A new version of COMRADE is available!\nVisit the GitHub releases page to download.",
+                             font=("Segoe UI", 10),
+                             bg=COLORS['surface'],
+                             fg=COLORS['text_secondary'],
+                             justify=tk.LEFT)
+        desc_label.pack(anchor=tk.W)
+        
+        # Store release URL for later use
+        self.release_url = release_url
+        
+        # Button frame
+        button_frame = tk.Frame(main_frame, bg=COLORS['background'])
+        button_frame.pack(fill=tk.X, pady=(20, 0))
+        
+        # Later button
+        later_btn = tk.Button(button_frame,
+                             text="Later",
+                             font=("Segoe UI", 11, "bold"),
+                             bg=COLORS['text_secondary'],
+                             fg='white',
+                             relief=tk.FLAT,
+                             padx=20,
+                             pady=8,
+                             command=self.later,
+                             cursor='hand2')
+        later_btn.pack(side=tk.RIGHT, padx=(10, 0))
+        
+        # Visit GitHub button
+        visit_btn = tk.Button(button_frame,
+                             text="Visit GitHub",
+                             font=("Segoe UI", 11, "bold"),
+                             bg=COLORS['primary'],
+                             fg='white',
+                             relief=tk.FLAT,
+                             padx=20,
+                             pady=8,
+                             command=self.visit_github,
+                             cursor='hand2')
+        visit_btn.pack(side=tk.RIGHT)
+        
+        # Key bindings
+        self.dialog.bind('<Escape>', lambda e: self.later())
+        self.dialog.protocol("WM_DELETE_WINDOW", self.later)
+        
+    def visit_github(self):
+        """Open the GitHub releases page in the default browser"""
+        import webbrowser
+        try:
+            webbrowser.open(self.release_url)
+        except Exception as e:
+            messagebox.showerror("Error", f"Could not open browser: {e}", parent=self.dialog)
+        self.result = "visit"
+        self.dialog.destroy()
+        
+    def later(self):
+        """Close the dialog without taking action"""
+        self.result = "later"
+        self.dialog.destroy()
+
+
+class NoUpdateDialog:
+    """
+    Dialog for showing that no update is available
+    """
+    def __init__(self, parent, current_version):
+        self.result = None
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title("✅ Up to Date")
+        self.dialog.geometry("350x225")
+        self.dialog.configure(bg=COLORS['background'])
+        self.dialog.transient(parent)
+        self.dialog.grab_set()
+        self.dialog.resizable(False, False)
+        
+        # Center the dialog
+        self.dialog.update_idletasks()
+        x = (self.dialog.winfo_screenwidth() // 2) - (350 // 2)
+        y = (self.dialog.winfo_screenheight() // 2) - (225 // 2)
+        self.dialog.geometry(f"350x225+{x}+{y}")
+        
+        # Main container
+        main_frame = tk.Frame(self.dialog, bg=COLORS['background'])
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=25, pady=25)
+        
+        # Icon and title
+        title_label = tk.Label(main_frame,
+                              text="✅ You're Up to Date!",
+                              font=("Segoe UI", 16, "bold"),
+                              bg=COLORS['background'],
+                              fg=COLORS['success'])
+        title_label.pack(pady=(0, 20))
+        
+        # Version info
+        version_label = tk.Label(main_frame,
+                                text=f"Current Version: {current_version}",
+                                font=("Segoe UI", 12),
+                                bg=COLORS['background'],
+                                fg=COLORS['text_primary'])
+        version_label.pack(pady=(0, 10))
+        
+        # Description
+        desc_label = tk.Label(main_frame,
+                             text="You have the latest version of COMRADE.",
+                             font=("Segoe UI", 10),
+                             bg=COLORS['background'],
+                             fg=COLORS['text_secondary'])
+        desc_label.pack(pady=(0, 20))
+        
+        # OK button
+        ok_btn = tk.Button(main_frame,
+                          text="OK",
+                          font=("Segoe UI", 11, "bold"),
+                          bg=COLORS['primary'],
+                          fg='white',
+                          relief=tk.FLAT,
+                          padx=30,
+                          pady=10,
+                          command=self.ok,
+                          cursor='hand2')
+        ok_btn.pack()
+        
+        # Key bindings
+        self.dialog.bind('<Return>', lambda e: self.ok())
+        self.dialog.bind('<Escape>', lambda e: self.ok())
+        self.dialog.protocol("WM_DELETE_WINDOW", self.ok)
+        
+    def ok(self):
+        """Close the dialog"""
+        self.result = "ok"
+        self.dialog.destroy()
