@@ -6,6 +6,10 @@ Dialog classes for the People Connection Visualizer
 import tkinter as tk
 from tkinter import messagebox, filedialog
 import os
+import webbrowser
+import requests
+import threading
+from pathlib import Path
 from constants import COLORS
 
 class PersonDialog:
@@ -353,7 +357,7 @@ class VersionUpdateDialog:
         self.result = None
         self.dialog = tk.Toplevel(parent)
         self.dialog.title("🔄 Update Available")
-        self.dialog.geometry("400x300")
+        self.dialog.geometry("500x400")
         self.dialog.configure(bg=COLORS['background'])
         self.dialog.transient(parent)
         self.dialog.grab_set()
@@ -361,10 +365,10 @@ class VersionUpdateDialog:
         
         # Center the dialog
         self.dialog.update_idletasks()
-        x = (self.dialog.winfo_screenwidth() // 2) - (400 // 2)
-        y = (self.dialog.winfo_screenheight() // 2) - (300 // 2)
-        self.dialog.geometry(f"400x300+{x}+{y}")
-        
+        x = (self.dialog.winfo_screenwidth() // 2) - (500 // 2)
+        y = (self.dialog.winfo_screenheight() // 2) - (400 // 2)
+        self.dialog.geometry(f"500x400+{x}+{y}")
+
         # Main container
         main_frame = tk.Frame(self.dialog, bg=COLORS['background'])
         main_frame.pack(fill=tk.BOTH, expand=True, padx=25, pady=25)
@@ -406,7 +410,7 @@ class VersionUpdateDialog:
         
         # Description
         desc_label = tk.Label(info_inner,
-                             text="A new version of COMRADE is available!\nVisit the GitHub releases page to download.",
+                             text="A new version of COMRADE is available!\nClick download to get the latest version.",
                              font=("Segoe UI", 10),
                              bg=COLORS['surface'],
                              fg=COLORS['text_secondary'],
@@ -416,43 +420,163 @@ class VersionUpdateDialog:
         # Store release URL for later use
         self.release_url = release_url
         
+        # Download progress label (initially hidden)
+        self.progress_label = tk.Label(info_inner,
+                                     text="",
+                                     font=("Segoe UI", 9),
+                                     bg=COLORS['surface'],
+                                     fg=COLORS['primary'])
+        self.progress_label.pack(anchor=tk.W, pady=(10, 0))
+        
         # Button frame
         button_frame = tk.Frame(main_frame, bg=COLORS['background'])
         button_frame.pack(fill=tk.X, pady=(20, 0))
         
         # Later button
-        later_btn = tk.Button(button_frame,
-                             text="Later",
-                             font=("Segoe UI", 11, "bold"),
-                             bg=COLORS['text_secondary'],
-                             fg='white',
-                             relief=tk.FLAT,
-                             padx=20,
-                             pady=8,
-                             command=self.later,
-                             cursor='hand2')
-        later_btn.pack(side=tk.RIGHT, padx=(10, 0))
+        self.later_btn = tk.Button(button_frame,
+                                  text="Later",
+                                  font=("Segoe UI", 11, "bold"),
+                                  bg=COLORS['text_secondary'],
+                                  fg='white',
+                                  relief=tk.FLAT,
+                                  padx=20,
+                                  pady=8,
+                                  command=self.later,
+                                  cursor='hand2')
+        self.later_btn.pack(side=tk.RIGHT, padx=(10, 0))
         
         # Visit GitHub button
-        visit_btn = tk.Button(button_frame,
-                             text="Visit GitHub",
-                             font=("Segoe UI", 11, "bold"),
-                             bg=COLORS['primary'],
-                             fg='white',
-                             relief=tk.FLAT,
-                             padx=20,
-                             pady=8,
-                             command=self.visit_github,
-                             cursor='hand2')
-        visit_btn.pack(side=tk.RIGHT)
+        self.visit_btn = tk.Button(button_frame,
+                                  text="Visit GitHub",
+                                  font=("Segoe UI", 11),
+                                  bg=COLORS['text_secondary'],
+                                  fg='white',
+                                  relief=tk.FLAT,
+                                  padx=15,
+                                  pady=8,
+                                  command=self.visit_github,
+                                  cursor='hand2')
+        self.visit_btn.pack(side=tk.RIGHT, padx=(0, 10))
+        
+        # Download button
+        self.download_btn = tk.Button(button_frame,
+                                     text="⬇️ Download Update",
+                                     font=("Segoe UI", 11, "bold"),
+                                     bg=COLORS['primary'],
+                                     fg='white',
+                                     relief=tk.FLAT,
+                                     padx=20,
+                                     pady=8,
+                                     command=self.download_update,
+                                     cursor='hand2')
+        self.download_btn.pack(side=tk.RIGHT, padx=(0, 10))
         
         # Key bindings
         self.dialog.bind('<Escape>', lambda e: self.later())
         self.dialog.protocol("WM_DELETE_WINDOW", self.later)
         
+    def download_update(self):
+        """Download the latest release exe file"""
+        def download_thread():
+            try:
+                # Update UI to show loading state
+                self.dialog.after(0, self.update_download_ui, "⏳ Finding latest release...", True)
+                
+                # Fetch latest release info from GitHub API
+                response = requests.get('https://api.github.com/repos/BitEU/COMRADE/releases/latest', timeout=10)
+                
+                if not response.ok:
+                    raise Exception('Failed to fetch release info')
+                
+                release_data = response.json()
+                
+                # Find the .exe file in the assets
+                exe_asset = None
+                for asset in release_data.get('assets', []):
+                    if asset['name'].lower().endswith('.exe'):
+                        exe_asset = asset
+                        break
+                
+                if not exe_asset:
+                    raise Exception('No executable file found in the latest release')
+                
+                # Update UI with download progress
+                self.dialog.after(0, self.update_download_ui, f"⬇️ Downloading {exe_asset['name']}...", True)
+                
+                # Download the file
+                download_response = requests.get(exe_asset['browser_download_url'], timeout=30)
+                
+                if not download_response.ok:
+                    raise Exception('Failed to download the file')
+                
+                # Save to Downloads folder
+                downloads_path = Path.home() / "Downloads"
+                downloads_path.mkdir(exist_ok=True)
+                file_path = downloads_path / exe_asset['name']
+                
+                with open(file_path, 'wb') as f:
+                    f.write(download_response.content)
+                
+                # Success - update UI
+                self.dialog.after(0, self.update_download_ui, f"✅ Downloaded to: {file_path}", False)
+                
+                # Show success message
+                self.dialog.after(500, lambda: messagebox.showinfo(
+                    "Download Complete", 
+                    f"The latest version has been downloaded to:\n{file_path}\n\nYou can now install the update.",
+                    parent=self.dialog
+                ))
+                
+                # Reset button after delay
+                self.dialog.after(3000, self.reset_download_ui)
+                
+            except requests.exceptions.Timeout:
+                self.dialog.after(0, self.update_download_ui, "❌ Download timed out", False)
+                self.dialog.after(0, self.show_download_error, "Download timed out. Please check your internet connection.")
+            except requests.exceptions.RequestException as e:
+                self.dialog.after(0, self.update_download_ui, "❌ Network error", False)
+                self.dialog.after(0, self.show_download_error, f"Network error: {str(e)}")
+            except Exception as e:
+                self.dialog.after(0, self.update_download_ui, "❌ Download failed", False)
+                self.dialog.after(0, self.show_download_error, f"Download failed: {str(e)}")
+        
+        # Start download in separate thread
+        thread = threading.Thread(target=download_thread, daemon=True)
+        thread.start()
+    
+    def update_download_ui(self, message, disable_buttons):
+        """Update the UI during download process"""
+        self.progress_label.config(text=message)
+        if disable_buttons:
+            self.download_btn.config(state='disabled', text="⏳ Downloading...")
+            self.visit_btn.config(state='disabled')
+            self.later_btn.config(state='disabled')
+        else:
+            self.download_btn.config(state='normal')
+            self.visit_btn.config(state='normal')
+            self.later_btn.config(state='normal')
+    
+    def show_download_error(self, error_message):
+        """Show error message and offer fallback"""
+        result = messagebox.askquestion(
+            "Download Failed",
+            f"{error_message}\n\nWould you like to visit the GitHub releases page instead?",
+            parent=self.dialog
+        )
+        if result == 'yes':
+            self.visit_github()
+        else:
+            self.reset_download_ui()
+    
+    def reset_download_ui(self):
+        """Reset the download UI to initial state"""
+        self.progress_label.config(text="")
+        self.download_btn.config(state='normal', text="⬇️ Download Update")
+        self.visit_btn.config(state='normal')
+        self.later_btn.config(state='normal')
+    
     def visit_github(self):
         """Open the GitHub releases page in the default browser"""
-        import webbrowser
         try:
             webbrowser.open(self.release_url)
         except Exception as e:

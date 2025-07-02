@@ -1286,22 +1286,7 @@ class ConnectionApp:
             outline=COLORS['secondary'], 
             width=2,
             tags=("connection",))
-        icon = "🔗"
-        if "family" in label.lower() or "parent" in label.lower() or "child" in label.lower():
-            icon = "👨‍👩‍👧‍👦"
-        elif "friend" in label.lower():
-            icon = "👫"
-        elif "work" in label.lower() or "colleague" in label.lower():
-            icon = "💼"
-        elif "partner" in label.lower() or "spouse" in label.lower():
-            icon = "💑"
         
-        icon_text = self.canvas.create_text(
-            mid_x - half_width + int(15 * zoom), mid_y,
-            text=icon,
-            font=("Arial", int(12 * zoom)),
-            tags=("connection",))
-        self.store_text_font_size(icon_text, ("Arial", 12))  # Store original size
         label_text = self.canvas.create_text(
             mid_x, mid_y,
             text=label,
@@ -1318,13 +1303,12 @@ class ConnectionApp:
         
         # Store connection info with all elements
         key = (min(id1, id2), max(id1, id2))
-        self.connection_lines[key] = (shadow_line, line, label_shadow, label_bg, icon_text, label_text, clickable_area)
+        self.connection_lines[key] = (shadow_line, line, label_shadow, label_bg, label_text, clickable_area)
           # Move connections to back but labels to front
         self.canvas.tag_lower(shadow_line)
         self.canvas.tag_lower(line)
         self.canvas.tag_raise(label_shadow)
         self.canvas.tag_raise(label_bg)
-        self.canvas.tag_raise(icon_text)
         self.canvas.tag_raise(label_text)
         
         # Ensure grid stays behind all elements
@@ -1334,8 +1318,8 @@ class ConnectionApp:
         zoom = self._last_zoom if hasattr(self, '_last_zoom') else 1.0
         # Redraw all modern connections
         for (id1, id2), elements in self.connection_lines.items():
-            if len(elements) >= 7:  # New format with 7 elements
-                shadow_line, line, label_shadow, label_bg, icon_text, label_text, clickable_area = elements
+            if len(elements) >= 6:  # New format with 6 elements (removed icon)
+                shadow_line, line, label_shadow, label_bg, label_text, clickable_area = elements
 
                 p1 = self.people[id1]
                 p2 = self.people[id2]
@@ -1364,7 +1348,6 @@ class ConnectionApp:
                 self.canvas.coords(label_bg, 
                                  mid_x - half_width, mid_y - half_height, 
                                  mid_x + half_width, mid_y + half_height)
-                self.canvas.coords(icon_text, mid_x - half_width + int(15 * zoom), mid_y)
                 self.canvas.coords(label_text, mid_x, mid_y)
                 self.canvas.coords(clickable_area,
                                  mid_x - half_width, mid_y - half_height, 
