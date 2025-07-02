@@ -388,17 +388,64 @@ class DataManagement:
             for person_id, person in self.app.people.items():
                 x = int(person.x * zoom)
                 y = int(person.y * zoom)
-                  # Calculate card dimensions
-                info_lines = [
-                    f"Name: {person.name}" if person.name else "Name: Unnamed",
-                    f"DOB: {person.dob}" if person.dob else "",
-                    f"Alias: {person.alias}" if person.alias else "",
-                    f"Addr: {person.address}" if person.address else "",
-                    f"Phone: {person.phone}" if person.phone else ""
-                ]
-                info_lines = [line for line in info_lines if line.strip()]
+
+                # Try to load fonts for text with DPI scaling
+                name_font_size = int(11 * dpi_scale)
+                detail_font_size = int(9 * dpi_scale)
+                try:
+                    name_font = ImageFont.truetype("arial.ttf", name_font_size)
+                    detail_font = ImageFont.truetype("arial.ttf", detail_font_size)
+                except:
+                    try:
+                        name_font = ImageFont.load_default()
+                        detail_font = ImageFont.load_default()
+                    except:
+                        name_font = None
+                        detail_font = None
                 
-                # Check for image files (same logic as canvas display)
+                # Prepare details, filtering out empty values
+                details = [
+                    ("DOB:", person.dob),
+                    ("Alias:", person.alias),
+                    ("Addr:", person.address),
+                    ("Phone:", person.phone)
+                ]
+                details = [(label, value) for label, value in details if value and value.strip()]
+
+                # Calculate maximum width needed for details text
+                max_details_width = 0
+                if detail_font:
+                    label_column_width = 0
+                    value_column_width = 0
+                    for label, value in details:
+                        label_bbox = draw.textbbox((0, 0), label, font=detail_font)
+                        value_bbox = draw.textbbox((0, 0), value, font=detail_font)
+                        label_column_width = max(label_column_width, label_bbox[2] - label_bbox[0])
+                        value_column_width = max(value_column_width, value_bbox[2] - value_bbox[0])
+                    
+                    column_gap = int(10 * dpi_scale)
+                    max_details_width = label_column_width + column_gap + value_column_width
+                else: # Fallback if font is not available
+                    if details:
+                        max_len = max(len(l) + len(v) for l,v in details)
+                        max_details_width = max_len * int(6 * dpi_scale)
+
+                # Calculate width needed for the header (avatar + name)
+                avatar_space = int(40 * zoom) # Avatar size + padding
+                name_width = 0
+                if name_font:
+                    name_bbox = draw.textbbox((0, 0), person.name or "Unnamed", font=name_font)
+                    name_width = name_bbox[2] - name_bbox[0]
+                else: # Fallback
+                    name_width = len(person.name or "Unnamed") * int(7 * dpi_scale)
+                
+                header_width = avatar_space + name_width
+
+                # Determine card width
+                padding = int(15 * dpi_scale)
+                content_width = max(header_width, max_details_width)
+                
+                # Check for image to include in width calculation
                 image_file = None
                 image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'}
                 if hasattr(person, 'files') and person.files:
@@ -407,15 +454,28 @@ class DataManagement:
                             image_file = file_path
                             break
                 
-                # Calculate card dimensions with DPI scaling and image consideration
-                base_width = max(max(len(line) for line in info_lines) * 9, 200)
-                image_width = 120 if image_file else 0  # Reserve space for image
-                card_width = (base_width + image_width + (20 if image_file else 0)) * zoom  # Add padding between text and image
-                card_height = max(len(info_lines) * 25 + 40, 120, 140 if image_file else 120) * zoom  # Ensure minimum height for image
+                image_width = int(120 * dpi_scale) if image_file else 0
+                image_padding = int(10 * dpi_scale) if image_file else 0
+
+                card_width = content_width + image_width + image_padding + 2 * padding
                 
+                # Determine card height
+                header_height = int(30 * zoom)
+                line_height = int(20 * zoom)
+                details_height = len(details) * line_height
+                vertical_padding = int(15 * zoom)
+                
+                base_card_height = header_height + details_height + 2 * vertical_padding
+                min_height = int(120 * zoom)
+                if image_file:
+                    min_height = int(140 * zoom) # Taller min height if image exists
+                
+                card_height = max(base_card_height, min_height)
+
                 half_width = int(card_width // 2)
                 half_height = int(card_height // 2)
-                  # Draw card shadow with DPI scaling
+
+                # Draw card shadow with DPI scaling
                 shadow_offset = int(3 * dpi_scale)
                 for i in range(3, 0, -1):
                     shadow_color = '#e0e0e0' if i == 3 else ('#d0d0d0' if i == 2 else '#c0c0c0')
@@ -436,7 +496,6 @@ class DataManagement:
                 ], fill=COLORS['surface'], outline=person_color, width=card_border_width)
                 
                 # Draw header
-                header_height = int(30 * zoom)
                 draw.rectangle([
                     x - half_width, y - half_height,
                     x + half_width, y - half_height + header_height
@@ -453,90 +512,55 @@ class DataManagement:
                     avatar_x + avatar_size//2, avatar_y + avatar_size//2
                 ], fill='white', outline=person_color, width=avatar_border_width)
                 
-                # Try to load fonts for text with DPI scaling
-                name_font_size = int(11 * dpi_scale)
-                detail_font_size = int(9 * dpi_scale)
-                try:
-                    name_font = ImageFont.truetype("arial.ttf", name_font_size)
-                    detail_font = ImageFont.truetype("arial.ttf", detail_font_size)
-                except:
-                    try:
-                        name_font = ImageFont.load_default()
-                        detail_font = ImageFont.load_default()
-                    except:
-                        name_font = None
-                        detail_font = None
-                
                 # Draw name in header
-                name_x = avatar_x + avatar_size + int(10 * zoom)
+                name_x = avatar_x + avatar_size//2 + int(5 * zoom)
                 draw.text((name_x, avatar_y - int(6 * zoom)), 
                          person.name or "Unnamed", fill='white', font=name_font)
-                  # Draw details
-                details_start_y = y - half_height + header_height + int(15 * zoom)
-                line_height = int(20 * zoom)
+
+                # Draw details
+                details_start_y = y - half_height + header_height + vertical_padding
                 current_y = details_start_y
                 
-                details = [
-                    ("DOB:", person.dob),
-                    ("Alias:", person.alias),
-                    ("Addr:", person.address),
-                    ("Phone:", person.phone)                ]
+                # Recalculate label column width for drawing
+                label_column_width = 0
+                if detail_font and details:
+                    for label, value in details:
+                        label_bbox = draw.textbbox((0, 0), label, font=detail_font)
+                        label_column_width = max(label_column_width, label_bbox[2] - label_bbox[0])
                 
-                for icon, value in details:
-                    if value and value.strip():
-                        label_x = x - half_width + int(15 * zoom)
-                        # Fixed column width for labels to ensure proper alignment
-                        label_column_width = int(60 * dpi_scale)  # Fixed width for label column
-                        data_x = label_x + label_column_width
-                        
-                        # Draw label and data in separate columns
-                        draw.text((label_x, current_y), icon, 
-                                fill=COLORS['text_primary'], font=detail_font)
-                        draw.text((data_x, current_y), value, 
-                                fill=COLORS['text_primary'], font=detail_font)
-                        current_y += line_height
+                for label, value in details:
+                    label_x = x - half_width + padding
+                    data_x = label_x + label_column_width + column_gap
+                    
+                    # Draw label and data in separate columns
+                    draw.text((label_x, current_y), label, 
+                            fill=COLORS['text_primary'], font=detail_font)
+                    draw.text((data_x, current_y), value, 
+                            fill=COLORS['text_primary'], font=detail_font)
+                    current_y += line_height
                 
                 # Draw attached image if available
-                if hasattr(person, 'files') and person.files:
-                    image_file = None
-                    image_extensions = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'}
-                    for file_path in person.files:
-                        if os.path.exists(file_path) and os.path.splitext(file_path.lower())[1] in image_extensions:
-                            image_file = file_path
-                            break
-                    
-                    if image_file:
-                        try:
-                            # Load and resize image for export
-                            person_image = Image.open(image_file)
-                            
-                            # Calculate image dimensions (maintain aspect ratio)
-                            base_max_width = int(100 * dpi_scale)  # Scaled for high DPI
-                            base_max_height = int(100 * dpi_scale)  # Scaled for high DPI
-                            
-                            # Calculate scaling to fit within bounds
-                            img_ratio = person_image.width / person_image.height
-                            if base_max_width / base_max_height > img_ratio:
-                                # Height is the limiting factor
-                                img_height = base_max_height
-                                img_width = int(img_height * img_ratio)
-                            else:
-                                # Width is the limiting factor
-                                img_width = base_max_width
-                                img_height = int(img_width / img_ratio)
-                            
-                            # Resize the image
-                            person_image = person_image.resize((img_width, img_height), Image.Resampling.LANCZOS)
-                            
-                            # Position image on the right side of the card
-                            img_x = x + half_width - img_width//2 - int(10 * dpi_scale)  # Right side with padding
-                            img_y = y - half_height + header_height + img_height//2 + int(10 * dpi_scale)  # Below header with padding
-                            
-                            # Paste the image onto the main image
-                            image.paste(person_image, (img_x - img_width//2, img_y - img_height//2))
-                            
-                        except Exception as e:
-                            logger.error(f"Failed to include image {image_file} in PNG export: {e}")
+                if image_file:
+                    try:
+                        # Load and resize image for export
+                        person_image = Image.open(image_file)
+                        
+                        # Calculate image dimensions (maintain aspect ratio)
+                        max_img_height = card_height - header_height - (2 * vertical_padding)
+                        max_img_width = image_width
+                        
+                        person_image.thumbnail((max_img_width, max_img_height), Image.Resampling.LANCZOS)
+                        img_width, img_height = person_image.size
+                        
+                        # Position image on the right side of the card
+                        img_x = x + half_width - padding - (max_img_width // 2)
+                        img_y = y - half_height + header_height + vertical_padding + (max_img_height // 2)
+                        
+                        # Paste the image onto the main image
+                        image.paste(person_image, (img_x - img_width//2, img_y - img_height//2), person_image if person_image.mode == 'RGBA' else None)
+                        
+                    except Exception as e:
+                        logger.error(f"Failed to include image {image_file} in PNG export: {e}")
             
             # Save the image with high DPI information
             image.save(filename, 'PNG', dpi=(target_dpi, target_dpi))
