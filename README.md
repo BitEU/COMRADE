@@ -18,7 +18,6 @@ A modern, interactive Python GUI application for visualizing and managing relati
     - [Navigation Controls](#navigation-controls)
     - [Data Management](#data-management)
   - [🎨 Interface Overview](#-interface-overview)
-  - [📁 Project Structure](#-project-structure)
   - [🔧 Technical Details](#-technical-details)
     - [Architecture](#architecture)
     - [Dependencies](#dependencies)
@@ -147,19 +146,6 @@ The application features a clean, modern interface divided into several sections
 - **Canvas**: Main visualization area with grid overlay
 - **Instructions Panel**: Helpful usage tips
 - **Status Bar**: Current mode and zoom controls
-
-## 📁 Project Structure
-
-```
-COMRADE/
-├── main.py              # Main application file with ConnectionApp class
-├── models.py            # Person data model
-├── dialogs.py           # Dialog classes for person and connection editing
-├── constants.py         # Application constants and color scheme
-├── based.csv           # Sample data file
-├── LICENSE             # GNU General Public License v3.0
-└── README.md           # This file
-```
 
 ## 🔧 Technical Details
 
