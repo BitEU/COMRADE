@@ -1820,19 +1820,22 @@ class ConnectionApp:
                         x + half_width + offset, y + half_height + offset
                     ], fill=shadow_color)
                 
+                # Get person's color for consistency with canvas display
+                person_color = CARD_COLORS[person.color % len(CARD_COLORS)]
+                
                 # Draw main card with DPI scaling
                 card_border_width = max(1, int(2 * dpi_scale))
                 draw.rectangle([
                     x - half_width, y - half_height,
                     x + half_width, y + half_height
-                ], fill=COLORS['surface'], outline=COLORS['primary'], width=card_border_width)
+                ], fill=COLORS['surface'], outline=person_color, width=card_border_width)
                 
                 # Draw header
                 header_height = int(30 * zoom)
                 draw.rectangle([
                     x - half_width, y - half_height,
                     x + half_width, y - half_height + header_height
-                ], fill=COLORS['primary'])
+                ], fill=person_color)
                 
                 # Draw avatar background with DPI scaling
                 avatar_size = int(20 * zoom)
@@ -1843,7 +1846,7 @@ class ConnectionApp:
                 draw.ellipse([
                     avatar_x - avatar_size//2, avatar_y - avatar_size//2,
                     avatar_x + avatar_size//2, avatar_y + avatar_size//2
-                ], fill='white', outline=COLORS['primary'], width=avatar_border_width)
+                ], fill='white', outline=person_color, width=avatar_border_width)
                 
                 # Try to load fonts for text with DPI scaling
                 name_font_size = int(11 * dpi_scale)
