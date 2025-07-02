@@ -10,7 +10,7 @@ import webbrowser
 import requests
 import threading
 from pathlib import Path
-from constants import COLORS
+from .constants import COLORS
 
 class PersonDialog:
     """

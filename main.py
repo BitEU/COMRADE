@@ -23,9 +23,9 @@ except ImportError:
     PIL_AVAILABLE = False
 
 # Import from supporting modules
-from constants import COLORS, CARD_COLORS
-from models import Person
-from dialogs import PersonDialog, ConnectionLabelDialog, VersionUpdateDialog, NoUpdateDialog
+from src.constants import COLORS, CARD_COLORS
+from src.models import Person
+from src.dialogs import PersonDialog, ConnectionLabelDialog, VersionUpdateDialog, NoUpdateDialog
 
 # Set up logging
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')

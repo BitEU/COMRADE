@@ -29,6 +29,7 @@ A modern, interactive Python GUI application for visualizing and managing relati
     - [Connection System](#connection-system)
     - [Visual Design](#visual-design)
     - [Zoom and Pan](#zoom-and-pan)
+  - [ℹ️ Frequently Asked Questions](#frequently-asked-questions)
   - [📄 License](#-license)
   - [🤝 Contributing](#-contributing)
 
@@ -225,6 +226,14 @@ From_ID,To_ID,Label
 - Pan capabilities with middle mouse button
 - Zoom slider for precise control
 - Maintains aspect ratios and text readability
+
+## ℹ️ Frequently Asked Questions
+
+Q: If I have a large Excel sheet with the names of suspects, how can I more easily add it in?
+A: One of two ways. You can extract your .ZIP case file, edit the data.csv file inside, and insert new rows above the CONNECTIONS section with the data of your new people, or you can use the legacy CSV format (like /test_files/musicians.csv), insert the data that way, and load it into COMRADE.
+
+Q: What's next?
+A: The PNG exporting is extremely buggy and had data clipping everywhere, which is a problem for a program whose purpose is to export data in a readable way. This is a work in progress.
 
 ## 📄 License
 

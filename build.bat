@@ -1,1 +1,1 @@
-python -m PyInstaller --onefile --windowed --icon=group.ico --hidden-import="PIL" --hidden-import="PIL.Image" --hidden-import="PIL.ImageDraw" --hidden-import="PIL.ImageFont" --hidden-import="models" --hidden-import="dialogs" --hidden-import="constants" main.py
+python -m PyInstaller --onefile --windowed --icon=assets/group.ico --hidden-import="PIL" --hidden-import="PIL.Image" --hidden-import="PIL.ImageDraw" --hidden-import="PIL.ImageFont" --hidden-import="src.models" --hidden-import="src.dialogs" --hidden-import="src.constants" main.py
