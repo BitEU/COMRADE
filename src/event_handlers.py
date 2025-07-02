@@ -1,6 +1,6 @@
 from datetime import datetime
 from src.constants import COLORS, CARD_COLORS
-from src.dialogs import ConnectionLabelDialog
+from src.dialogs import ConnectionLabelDialog, PersonDialog
 from tkinter import messagebox
 
 # This file will contain event handling logic.
@@ -60,6 +60,7 @@ class EventHandlers:
         """Perform the actual expensive zoom update operations"""
         self.app.canvas_helpers.rescale_text(zoom)
         self.app.canvas_helpers.rescale_images(zoom)
+        self.app.canvas_helpers.update_connections()
         self.app.canvas_helpers.redraw_grid()
         self.zoom_debounce_timer = None
 
@@ -69,12 +70,8 @@ class EventHandlers:
     def on_canvas_click(self, event):
         # Account for zoom in hit detection
         zoom = self.last_zoom
-        # Increase tolerance at zoom levels close to 1.0 where precision issues can occur
-        base_tolerance = 3
-        if 0.9 <= zoom <= 1.1:
-            tolerance = int(base_tolerance * 1.5)  # Increase tolerance near zoom 1.0
-        else:
-            tolerance = base_tolerance
+        # Make tolerance proportional to zoom level
+        tolerance = max(3, int(10 * (1/zoom))) # Increase tolerance as we zoom out
         
         # Convert screen coordinates to canvas coordinates to handle scrolled content
         canvas_x = self.app.canvas.canvasx(event.x)
@@ -82,46 +79,43 @@ class EventHandlers:
         
         # Use canvas coordinates for hit detection
         items = self.app.canvas.find_overlapping(canvas_x - tolerance, canvas_y - tolerance, canvas_x + tolerance, canvas_y + tolerance)
-        if not items:
-            self.clear_connection_selection()
-            self.selected_person = None
-            return
-            
-        # Clear previous selections
+        
+        # Always clear selections on a new click
         self.clear_connection_selection()
-        
-        # Find the topmost person item under the cursor
-        selected_person_id = None
-        for item in reversed(items):  # reversed: topmost first
+        self.selected_person = None
+        self.dragging = False
+
+        if not items:
+            return
+
+        # Iterate from topmost to bottommost item
+        for item in reversed(items):
             tags = self.app.canvas.gettags(item)
-            if any("person" in tag for tag in tags):
+
+            # Check for connection label first
+            if any(t.startswith("connection_label_") or t.startswith("connection_clickable_") for t in tags):
                 for tag in tags:
-                    if tag.startswith("person_"):
-                        selected_person_id = int(tag.split("_")[1])
-                        break
-                if selected_person_id is not None:
-                    break
-        
-        if selected_person_id is not None:
-            self.selected_person = selected_person_id
-            self.drag_data = {"x": canvas_x, "y": canvas_y}
-            self.dragging = True
-        else:
-            self.selected_person = None
-            # Check for connection selection as before
-            for item in items:
-                tags = self.app.canvas.gettags(item)
-                if any("connection_" in tag for tag in tags):
-                    for tag in tags:
-                        if tag.startswith("connection_label_") or tag.startswith("connection_clickable_"):
-                            parts = tag.split("_")
-                            if len(parts) >= 4:
+                    if tag.startswith("connection_label_") or tag.startswith("connection_clickable_"):
+                        parts = tag.split("_")
+                        if len(parts) >= 4:
+                            try:
                                 id1, id2 = int(parts[2]), int(parts[3])
                                 self.selected_connection = (min(id1, id2), max(id1, id2))
                                 self.highlight_connection_selection()
                                 self.app.canvas.focus_set()
-                                break
-                    break
+                                return  # Exit after handling the click
+                            except ValueError:
+                                continue
+            
+            # If not a connection, check for a person
+            if any("person" in tag for tag in tags):
+                for tag in tags:
+                    if tag.startswith("person_"):
+                        person_id = int(tag.split("_")[1])
+                        self.selected_person = person_id
+                        self.drag_data = {"x": canvas_x, "y": canvas_y}
+                        self.dragging = True
+                        return # Exit after handling the click
 
     def on_canvas_drag(self, event):
         if self.dragging and self.selected_person:
@@ -155,17 +149,13 @@ class EventHandlers:
 
     def on_canvas_release(self, event):
         if self.dragging and self.selected_person:
-            # Mark dragging as false first to allow widget refresh
             self.dragging = False
             
-            # Handle any pending color refresh from color cycling during drag
-            refresh_person = self.selected_person
+            # Don't refresh the widget - it's already at the correct position and scale
+            # Only refresh if there was a pending color change
             if self._pending_color_refresh:
-                refresh_person = self._pending_color_refresh
+                self.app.root.after(50, lambda: self.app.refresh_person_widget(self._pending_color_refresh))
                 self._pending_color_refresh = None
-            
-            # After dragging is complete, refresh the widget to ensure correct positioning
-            self.app.root.after(50, lambda: self.app.refresh_person_widget(refresh_person) if refresh_person else None)
         else:
             self.dragging = False
     
@@ -188,10 +178,14 @@ class EventHandlers:
                 # Extract connection IDs from tag
                 parts = tag.split("_")
                 if len(parts) >= 4:
-                    id1, id2 = int(parts[2]), int(parts[3])
-                    self.selected_connection = (min(id1, id2), max(id1, id2))
-                    self.edit_connection_label()
-                    break
+                    try:
+                        id1, id2 = int(parts[2]), int(parts[3])
+                        self.selected_connection = (min(id1, id2), max(id1, id2))
+                        self.edit_connection_label()
+                        break
+                    except ValueError:
+                        # Not a valid connection tag, skip
+                        continue
     
     def on_mouse_move(self, event):
         if self.dragging:
@@ -379,6 +373,35 @@ class EventHandlers:
         self.connection_start = None
         self.app.update_status("Ready")
 
+    def edit_person(self, person_id):
+        """Handle editing a person's details via a dialog."""
+        if person_id in self.app.people:
+            person = self.app.people[person_id]
+            
+            # Use a dialog to get updated information
+            dialog = PersonDialog(self.app.root, 
+                                  "Edit Person", 
+                                  name=person.name, 
+                                  dob=person.dob,
+                                  alias=person.alias,
+                                  address=person.address,
+                                  phone=person.phone,
+                                  files=person.files)
+            self.app.root.wait_window(dialog.dialog)
+            
+            if dialog.result:
+                # Update person data
+                person.name = dialog.result['name']
+                person.dob = dialog.result['dob']
+                person.alias = dialog.result['alias']
+                person.address = dialog.result['address']
+                person.phone = dialog.result['phone']
+                person.files = dialog.result['files']
+                
+                # Refresh the specific person's widget on the canvas
+                self.app.refresh_person_widget(person_id)
+                self.app.update_status(f"Updated details for {person.name}")
+
     def edit_connection_label(self):
         """Edit the label of the selected connection"""
         if not self.selected_connection:
@@ -394,7 +417,7 @@ class EventHandlers:
             new_label = dialog.result
             self.app.people[id1].connections[id2] = new_label
             self.app.people[id2].connections[id1] = new_label
-            self.app.update_connections()
+            self.app.canvas_helpers.update_connections()
             self.app.update_status(f"Connection label updated for {self.app.people[id1].name} and {self.app.people[id2].name}")
         
         self.clear_connection_selection()
@@ -424,10 +447,12 @@ class EventHandlers:
             
             # Remove from canvas
             if self.selected_connection in self.app.connection_lines:
-                line_id, label_id, clickable_area_id = self.app.connection_lines.pop(self.selected_connection)
+                line_id, label_id, clickable_area_id, bg_rect_id = self.app.connection_lines.pop(self.selected_connection)
                 self.app.canvas.delete(line_id)
                 if label_id:
                     self.app.canvas.delete(label_id)
+                if bg_rect_id:
+                    self.app.canvas.delete(bg_rect_id)
                 self.app.canvas.delete(clickable_area_id)
             
             self.selected_connection = None
@@ -439,16 +464,10 @@ class EventHandlers:
             return
         
         if self.selected_connection in self.app.connection_lines:
-            line_id, label_id, _ = self.app.connection_lines[self.selected_connection]
+            line_id, label_id, _, bg_rect_id = self.app.connection_lines[self.selected_connection]
             self.app.canvas.itemconfig(line_id, fill=COLORS['primary'], width=4)
-            if label_id:
-                # Find the background rectangle and highlight it
-                bbox = self.app.canvas.bbox(label_id)
-                items = self.app.canvas.find_enclosed(bbox[0]-1, bbox[1]-1, bbox[2]+1, bbox[3]+1)
-                for item in items:
-                    if self.app.canvas.type(item) == 'rectangle':
-                        self.app.canvas.itemconfig(item, outline=COLORS['primary'], width=2)
-                        break
+            if label_id and bg_rect_id:
+                self.app.canvas.itemconfig(bg_rect_id, outline=COLORS['primary'], width=2)
 
     def clear_connection_selection(self):
         """Clear any existing connection selection highlight"""
@@ -456,15 +475,9 @@ class EventHandlers:
             return
             
         if self.selected_connection in self.app.connection_lines:
-            line_id, label_id, _ = self.app.connection_lines[self.selected_connection]
+            line_id, label_id, _, bg_rect_id = self.app.connection_lines[self.selected_connection]
             self.app.canvas.itemconfig(line_id, fill=COLORS['text_secondary'], width=2)
-            if label_id:
-                # Find the background rectangle and un-highlight it
-                bbox = self.app.canvas.bbox(label_id)
-                items = self.app.canvas.find_enclosed(bbox[0]-1, bbox[1]-1, bbox[2]+1, bbox[3]+1)
-                for item in items:
-                    if self.app.canvas.type(item) == 'rectangle':
-                        self.app.canvas.itemconfig(item, outline="", width=0)
-                        break
-        
+            if label_id and bg_rect_id:
+                self.app.canvas.itemconfig(bg_rect_id, outline=COLORS['border'])
+
         self.selected_connection = None

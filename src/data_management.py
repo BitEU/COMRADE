@@ -110,6 +110,14 @@ class DataManagement:
             
     def load_data(self):
         """Load data from a ZIP file containing CSV and attached files"""
+        
+        # Reset zoom to default before loading to prevent positioning issues
+        if hasattr(self.app, 'zoom_var') and self.app.zoom_var.get() != 1.0:
+            self.app.zoom_var.set(1.0)
+            # This will trigger the self.app.events.on_zoom callback,
+            # which handles the actual scaling and canvas update.
+            self.app.update_status("Zoom reset for loading", duration=2000)
+
         filename = filedialog.askopenfilename(
             filetypes=[("COMRADE files", "*.zip"), ("CSV files", "*.csv"), ("All files", "*.*")]
         )
@@ -212,9 +220,16 @@ class DataManagement:
                                 self.app.people[person_id] = person
                                 self.app.next_id = max(self.app.next_id, person_id + 1)
                 
+                # Create widgets at base zoom (1.0)
                 for person_id in self.app.people:
-                    self.app.canvas_helpers.create_person_widget(person_id)
+                    self.app.canvas_helpers.create_person_widget(person_id, zoom=1.0)
+                
+                # Draw connections for the base zoom
                 self.app.canvas_helpers.update_connections()
+
+                # Then apply current zoom if different from 1.0
+                if hasattr(self.app.events, 'last_zoom') and self.app.events.last_zoom != 1.0:
+                    self.app.events.on_zoom(self.app.events.last_zoom)
                 
                 # Count extracted files
                 total_files = sum(len(person.files) for person in self.app.people.values())
@@ -554,9 +569,21 @@ class DataManagement:
         self.app.people.clear()
         self.app.person_widgets.clear()
         self.app.connection_lines.clear()
-        self.app.original_font_sizes.clear()  # Clear font size tracking
+        self.app.original_font_sizes.clear()
+        self.app.original_image_sizes.clear()
+        self.app.image_cache.clear()
+        self.app.scaled_image_cache.clear()
+        self.app.base_image_cache.clear()
         self.app.selected_person = None
+        self.app.selected_connection = None
         self.app.next_id = 1
+        
+        # Reset zoom and view
+        if hasattr(self.app, 'events'):
+            self.app.events.last_zoom = 1.0
+            self.app.canvas.xview_moveto(0)
+            self.app.canvas.yview_moveto(0)
+
         # Recreate the grid pattern after clearing
         self.app.canvas_helpers.add_grid_pattern()
         

@@ -235,9 +235,9 @@ class PersonDialog:
 
 class ConnectionLabelDialog:
     """
-    Dialog for adding/editing connection labels
+    Dialog for adding/editing a connection label
     """
-    def __init__(self, parent, title, current_label=""):
+    def __init__(self, parent, title, initial_value=""):
         self.result = None
         self.dialog = tk.Toplevel(parent)
         self.dialog.title(f"🔗 {title}")
@@ -287,7 +287,7 @@ class ConnectionLabelDialog:
                                    relief=tk.FLAT,
                                    bd=0)
         self.label_entry.pack(fill=tk.BOTH, padx=2, pady=2)
-        self.label_entry.insert(0, current_label)
+        self.label_entry.insert(0, initial_value)
         self.label_entry.focus()
         self.label_entry.select_range(0, tk.END)
         

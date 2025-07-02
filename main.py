@@ -90,6 +90,10 @@ class ConnectionApp:
     
     def refresh_person_widget(self, person_id):
         """Refresh a person's widget on the canvas"""
+        # Don't refresh during zoom operations to avoid double-scaling
+        if hasattr(self.events, '_zooming') and self.events._zooming:
+            return
+            
         logger.info(f"Refreshing widget for person {person_id}")
         
         # Remove the old widget from the canvas
@@ -224,6 +228,10 @@ class ConnectionApp:
         """Clear the status bar message"""
         self.status_label.config(text="Ready - Right-click a person to start linking")
         self.status_timer = None
+
+    def draw_connection(self, id1, id2, label, zoom):
+        """Delegate to canvas_helpers"""
+        self.canvas_helpers.draw_connection(id1, id2, label, zoom)
 
     # All data management methods are now in DataManagement class
     def save_data(self):

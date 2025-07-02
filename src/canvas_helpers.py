@@ -138,15 +138,27 @@ class CanvasHelpers:
         zoom = self.app.events.last_zoom
         
         # Clear all existing lines and labels first
-        for key, (line_id, label_id, clickable_area_id) in self.app.connection_lines.items():
-            self.app.canvas.delete(line_id)
-            if label_id:
-                # Delete the label and its background group
-                group_tag = f"connection_label_group_{key[0]}_{key[1]}"
-                self.app.canvas.delete(group_tag)
-                self.app.canvas.delete(label_id) # Also delete the label itself
-            if clickable_area_id:
-                self.app.canvas.delete(clickable_area_id)
+        for key, elements in list(self.app.connection_lines.items()):
+            if len(elements) == 4:
+                line_id, label_id, clickable_area_id, bg_rect_id = elements
+                self.app.canvas.delete(line_id)
+                if label_id:
+                    self.app.canvas.delete(label_id)
+                if bg_rect_id:
+                    self.app.canvas.delete(bg_rect_id)
+                if clickable_area_id:
+                    self.app.canvas.delete(clickable_area_id)
+            elif len(elements) == 3: # Backwards compatibility
+                line_id, label_id, clickable_area_id = elements[:3]
+                self.app.canvas.delete(line_id)
+                if label_id:
+                    # Delete the label and its background group
+                    group_tag = f"connection_label_group_{key[0]}_{key[1]}"
+                    self.app.canvas.delete(group_tag)
+                    self.app.canvas.delete(label_id)
+                if clickable_area_id:
+                    self.app.canvas.delete(clickable_area_id)
+
         self.app.connection_lines.clear()
 
         # Redraw all connections
@@ -173,6 +185,7 @@ class CanvasHelpers:
         clickable_area = self.app.canvas.create_line(x1, y1, x2, y2, fill="", width=10, tags=("connection_clickable", f"connection_clickable_{id1}_{id2}"))
         
         label_id = None
+        bg_rect_id = None
         if label:
             # Calculate midpoint for the label
             mid_x = (x1 + x2) / 2
@@ -192,31 +205,41 @@ class CanvasHelpers:
             bbox = self.app.canvas.bbox(label_id)
             if bbox:
                 # Create a rectangle behind the text with padding
-                x1, y1, x2, y2 = bbox
+                x1_bbox, y1_bbox, x2_bbox, y2_bbox = bbox
                 padding = 5 * zoom
-                rect = self.app.canvas.create_rectangle(x1 - padding, y1 - padding, x2 + padding, y2 + padding, 
+                bg_rect_id = self.app.canvas.create_rectangle(x1_bbox - padding, y1_bbox - padding, x2_bbox + padding, y2_bbox + padding, 
                                                         fill=COLORS['surface'], 
                                                         outline='#e0e0e0', 
-                                                        width=1)
-                # Ensure the text is drawn on top of the rectangle
-                self.app.canvas.tag_raise(label_id, rect)
-                # Group the label and its background
-                self.app.canvas.addtag_withtag(f"connection_label_group_{id1}_{id2}", rect)
-                self.app.canvas.addtag_withtag(f"connection_label_group_{id1}_{id2}", label_id)
+                                                        width=1,
+                                                        tags=(f"connection_label_bg_{id1}_{id2}",))
 
             # Store original font size for scaling
-            self.store_text_font_size(label_id, ("Segoe UI", 10))
+            if label_id:
+                self.store_text_font_size(label_id, ("Segoe UI", 10))
 
         # Store all parts of the connection
-        self.app.connection_lines[(id1, id2)] = (line, label_id, clickable_area)
+        self.app.connection_lines[(min(id1, id2), max(id1, id2))] = (line, label_id, clickable_area, bg_rect_id)
         
+        # Ensure grid stays at the very bottom
+        self.app.canvas.tag_lower("grid")
+
+        # After creating all elements, ensure proper layering
+        self.app.canvas.tag_lower(line)
+        if clickable_area:
+            self.app.canvas.tag_lower(clickable_area)
+
+        if bg_rect_id:
+            self.app.canvas.tag_lower(bg_rect_id, line) # ensure bg is below line
+            self.app.canvas.tag_raise(bg_rect_id) # then raise it
+        if label_id:
+            self.app.canvas.tag_lower(label_id, line) # ensure label is below line
+            self.app.canvas.tag_raise(label_id) # then raise it
+        
+        if bg_rect_id and label_id:
+            self.app.canvas.tag_raise(label_id, bg_rect_id)
+
         # Ensure person widgets are on top of lines
         self.app.canvas.tag_raise("person")
-        
-        # Raise the label group to be on top of the connection line
-        label_group_tag = f"connection_label_group_{id1}_{id2}"
-        if self.app.canvas.find_withtag(label_group_tag):
-            self.app.canvas.tag_raise(label_group_tag)
     
     def add_grid_pattern(self):
         canvas_width = self.app.fixed_canvas_width

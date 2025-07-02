@@ -15,6 +15,7 @@ COLORS = {
     'accent': '#f59e0b',       # Amber
     'background': '#f8fafc',   # Light gray
     'surface': '#ffffff',      # White
+    'surface_bright': '#f0f0f0',  # Light gray for highlighting
     'text_primary': '#1e293b', # Dark slate
     'text_secondary': '#64748b', # Slate
     'border': '#e2e8f0',       # Light border
