@@ -1659,7 +1659,7 @@ class ConnectionApp:
                 else:
                     if len(row) >= 8:
                         person_id = int(row[0])
-                        person = Person(row[1], row[2], row[3], row[4, row[5]])
+                        person = Person(row[1], row[2], row[3], row[4], row[5])
                         person.x = float(row[6])
                         person.y = float(row[7])
                         
