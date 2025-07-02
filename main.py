@@ -31,7 +31,7 @@ from src.dialogs import PersonDialog, ConnectionLabelDialog, VersionUpdateDialog
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__)
 
-COMRADE_VERSION = "0.6.4"
+COMRADE_VERSION = "0.6.5"
 
 
 
