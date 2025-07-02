@@ -334,6 +334,9 @@ class DataManagement:
             for y in range(0, canvas_height, grid_size):
                 draw.line([(0, y), (canvas_width, y)], fill=grid_color, width=grid_width)
             
+            # Store connection data to draw labels later
+            connection_labels_to_draw = []
+
             # Draw connections first (so they appear behind people)
             for (id1, id2), label in [(ids, self.app.people[ids[0]].connections.get(ids[1], "")) 
                                     for ids in self.app.connection_lines.keys()]:
@@ -346,44 +349,10 @@ class DataManagement:
                     line_width = max(1, int(2 * dpi_scale))
                     draw.line([(x1, y1), (x2, y2)], fill=COLORS['primary'], width=line_width)
                     
-                    # Draw connection label
+                    # Store info for drawing label later
                     if label and label.strip():
-                        mid_x = (x1 + x2) // 2
-                        mid_y = (y1 + y2) // 2
-                        
-                        # Try to load a font with DPI scaling
-                        font_size = int(10 * dpi_scale)
-                        try:
-                            font = ImageFont.truetype("arial.ttf", font_size)
-                        except:
-                            try:
-                                font = ImageFont.load_default()
-                            except:
-                                font = None
-                          # Get text size for background with DPI scaling
-                        if font:
-                            bbox = draw.textbbox((0, 0), label, font=font)
-                            text_width = bbox[2] - bbox[0]
-                            text_height = bbox[3] - bbox[1]
-                        else:
-                            text_width = int(len(label) * 6 * dpi_scale)
-                            text_height = int(12 * dpi_scale)
-                        
-                        # Draw label background with DPI scaling
-                        padding = int(4 * dpi_scale)
-                        bg_left = mid_x - text_width // 2 - padding
-                        bg_top = mid_y - text_height // 2 - padding
-                        bg_right = mid_x + text_width // 2 + padding
-                        bg_bottom = mid_y + text_height // 2 + padding
-                        
-                        border_width = max(1, int(1 * dpi_scale))
-                        draw.rectangle([bg_left, bg_top, bg_right, bg_bottom], 
-                                     fill='white', outline=COLORS['border'], width=border_width)
-                        
-                        # Draw label text
-                        draw.text((mid_x - text_width // 2, mid_y - text_height // 2), 
-                                label, fill=COLORS['text_primary'], font=font)
-            
+                        connection_labels_to_draw.append({'label': label, 'x1': x1, 'y1': y1, 'x2': x2, 'y2': y2})
+
             # Draw people cards
             for person_id, person in self.app.people.items():
                 x = int(person.x * zoom)
@@ -561,7 +530,47 @@ class DataManagement:
                         
                     except Exception as e:
                         logger.error(f"Failed to include image {image_file} in PNG export: {e}")
-            
+
+            # Draw connection labels on top of cards
+            for conn in connection_labels_to_draw:
+                mid_x = (conn['x1'] + conn['x2']) // 2
+                mid_y = (conn['y1'] + conn['y2']) // 2
+                label = conn['label']
+                
+                # Try to load a font with DPI scaling
+                font_size = int(10 * dpi_scale)
+                try:
+                    font = ImageFont.truetype("arial.ttf", font_size)
+                except:
+                    try:
+                        font = ImageFont.load_default()
+                    except:
+                        font = None
+                
+                # Get text size for background with DPI scaling
+                if font:
+                    bbox = draw.textbbox((0, 0), label, font=font)
+                    text_width = bbox[2] - bbox[0]
+                    text_height = bbox[3] - bbox[1]
+                else:
+                    text_width = int(len(label) * 6 * dpi_scale)
+                    text_height = int(12 * dpi_scale)
+                
+                # Draw label background with DPI scaling
+                padding = int(4 * dpi_scale)
+                bg_left = mid_x - text_width // 2 - padding
+                bg_top = mid_y - text_height // 2 - padding
+                bg_right = mid_x + text_width // 2 + padding
+                bg_bottom = mid_y + text_height // 2 + padding
+                
+                border_width = max(1, int(1 * dpi_scale))
+                draw.rectangle([bg_left, bg_top, bg_right, bg_bottom], 
+                             fill='white', outline=COLORS['border'], width=border_width)
+                
+                # Draw label text
+                draw.text((mid_x - text_width // 2, mid_y - text_height // 2), 
+                        label, fill=COLORS['text_primary'], font=font)
+
             # Save the image with high DPI information
             image.save(filename, 'PNG', dpi=(target_dpi, target_dpi))
             messagebox.showinfo("Success", f"High DPI network exported successfully to:\n{filename}\n\nResolution: {canvas_width}x{canvas_height} pixels\nDPI: {target_dpi}")
