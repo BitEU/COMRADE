@@ -18,6 +18,7 @@ COLORS = {
     'surface_bright': '#f0f0f0',  # Light gray for highlighting
     'text_primary': '#1e293b', # Dark slate
     'text_secondary': '#64748b', # Slate
+    'slate_gray': '#64748b',   # Slate gray for legend headers
     'border': '#e2e8f0',       # Light border
     'hover': '#f1f5f9',        # Light hover
     'danger': '#ef4444',       # Red
@@ -38,7 +39,7 @@ CARD_COLORS = [
 
 # Application settings
 APP_TITLE = "🔗 People Connection Visualizer"
-WINDOW_WIDTH = 1400
+WINDOW_WIDTH = 1500
 WINDOW_HEIGHT = 900
 
 # Canvas settings

@@ -175,12 +175,18 @@ class CanvasHelpers:
             for id2, label in t1.connections.items():
                 if id2 in self.app.textboxes and id1 < id2:
                     self.draw_connection(id1, id2, label, zoom)
+        
+        # Check connections from legend cards
+        for id1, l1 in self.app.legends.items():
+            for id2, label in l1.connections.items():
+                if id2 in self.app.legends and id1 < id2:
+                    self.draw_connection(id1, id2, label, zoom)
 
     def draw_connection(self, id1, id2, label, zoom=1.0):
         """Draw a single connection line and its label, scaled by zoom"""
-        # Get card objects (could be person or textbox)
-        card1 = self.app.people.get(id1) or self.app.textboxes.get(id1)
-        card2 = self.app.people.get(id2) or self.app.textboxes.get(id2)
+        # Get card objects (could be person, textbox, or legend)
+        card1 = self.app.people.get(id1) or self.app.textboxes.get(id1) or self.app.legends.get(id1)
+        card2 = self.app.people.get(id2) or self.app.textboxes.get(id2) or self.app.legends.get(id2)
         
         if not card1 or not card2:
             return
@@ -249,9 +255,10 @@ class CanvasHelpers:
         if bg_rect_id and label_id:
             self.app.canvas.tag_raise(label_id, bg_rect_id)
 
-        # Ensure person and textbox widgets are on top of lines
+        # Ensure person, textbox, and legend widgets are on top of lines
         self.app.canvas.tag_raise("person")
         self.app.canvas.tag_raise("textbox")
+        self.app.canvas.tag_raise("legend")
     
     def add_grid_pattern(self):
         canvas_width = self.app.fixed_canvas_width
@@ -466,18 +473,22 @@ class CanvasHelpers:
             self.app.canvas.tag_bind(item, "<Leave>", on_leave)
 
     def highlight_card_for_connection(self, card_id):
-        """Highlight a card (person or textbox) for connection"""
+        """Highlight a card (person, textbox, or legend) for connection"""
         if card_id in self.app.people:
             self.highlight_person_for_connection(card_id)
         elif card_id in self.app.textboxes:
             self.highlight_textbox_for_connection(card_id)
+        elif card_id in self.app.legends:
+            self.highlight_legend_for_connection(card_id)
     
     def unhighlight_card_for_connection(self, card_id):
-        """Unhighlight a card (person or textbox) for connection"""
+        """Unhighlight a card (person, textbox, or legend) for connection"""
         if card_id in self.app.people:
             self.unhighlight_person_for_connection(card_id)
         elif card_id in self.app.textboxes:
             self.unhighlight_textbox_for_connection(card_id)
+        elif card_id in self.app.legends:
+            self.unhighlight_legend_for_connection(card_id)
 
     def highlight_textbox_for_connection(self, textbox_id):
         """Highlight a textbox for connection"""
@@ -731,6 +742,205 @@ class CanvasHelpers:
                 # Header
                 if self.app.canvas.itemcget(item, 'fill') == COLORS['accent']:
                     self.app.canvas.itemconfig(item, fill=person_color)
+                # Main card
+                else:
+                    self.app.canvas.itemconfig(item, fill=COLORS['surface'])
+
+    def create_legend_widget(self, legend_id, zoom=None):
+        """Create a legend card widget on the canvas"""
+        if self.app.events.dragging:
+            logger.warning(f"Attempted to create widget for legend {legend_id} during drag - skipping")
+            return
+            
+        logger.info(f"Creating widget for legend {legend_id}")
+        legend = self.app.legends[legend_id]
+        if zoom is None:
+            zoom = self.app.events.last_zoom if hasattr(self.app.events, 'last_zoom') else 1.0
+
+        if not hasattr(legend, 'base_x'):
+            legend.base_x = legend.x
+            legend.base_y = legend.y
+        x = legend.x * zoom
+        y = legend.y * zoom
+        
+        group = []
+        
+        # Calculate card dimensions based on legend entries
+        title_width = len(legend.title) * 10 if legend.title else 100
+        
+        # Calculate width based on longest description
+        max_desc_width = 0
+        for desc in legend.color_entries.values():
+            if desc:
+                max_desc_width = max(max_desc_width, len(desc) * 8)
+        
+        # Add space for color swatch + padding
+        swatch_width = 30
+        padding = 20
+        
+        base_width = max(title_width, max_desc_width + swatch_width + padding, 250)
+        base_height = max(120, 60 + len(legend.color_entries) * 30)
+        
+        card_width = base_width * zoom
+        card_height = base_height * zoom
+        
+        half_width = card_width // 2
+        half_height = card_height // 2
+        
+        # Create shadow effect
+        shadow_offset = int(3 * zoom)
+        for i in range(3, 0, -1):
+            shadow_color = '#e0e0e0' if i == 3 else ('#d0d0d0' if i == 2 else '#c0c0c0')
+            shadow = self.app.canvas.create_rectangle(
+                x - half_width + i, y - half_height + i,
+                x + half_width + i, y + half_height + i,
+                fill=shadow_color, outline='', width=0,
+                tags=(f"legend_{legend_id}", "legend", "shadow")
+            )
+            group.append(shadow)
+
+        # Main card (no color outline - legend cards are neutral)
+        main_card = self.app.canvas.create_rectangle(
+            x - half_width, y - half_height, x + half_width, y + half_height,
+            fill=COLORS['surface'], outline=COLORS['border'], width=2,
+            tags=(f"legend_{legend_id}", "legend")
+        )
+        group.append(main_card)
+        
+        # Header
+        header_height = int(35 * zoom)
+        header = self.app.canvas.create_rectangle(
+            x - half_width, y - half_height, x + half_width, y - half_height + header_height,
+            fill=COLORS['slate_gray'], outline='', width=0,
+            tags=(f"legend_{legend_id}", "legend")
+        )
+        group.append(header)
+        
+        # Icon and title in header
+        icon_x = x - half_width + int(15 * zoom)
+        icon_y = y - half_height + int(17 * zoom)
+        
+        # Title text (no folder icon)
+        title_text = self.app.canvas.create_text(
+            icon_x, icon_y,
+            text=legend.title or "Legend",
+            anchor="w", font=("Segoe UI", int(12 * zoom), "bold"), 
+            fill='white',
+            tags=(f"legend_{legend_id}", "legend")
+        )
+        self.store_text_font_size(title_text, ("Segoe UI", 12, "bold"))
+        group.append(title_text)
+
+        # Color entries
+        if legend.color_entries:
+            entry_start_y = y - half_height + header_height + int(15 * zoom)
+            entry_x = x - half_width + int(15 * zoom)
+            
+            line_height = int(25 * zoom)
+            swatch_size = int(15 * zoom)
+            
+            for i, (color_index, description) in enumerate(legend.color_entries.items()):
+                entry_y = entry_start_y + (i * line_height)
+                
+                # Draw color swatch
+                if isinstance(color_index, (int, str)):
+                    try:
+                        color_idx = int(color_index)
+                        color = CARD_COLORS[color_idx % len(CARD_COLORS)]
+                    except (ValueError, IndexError):
+                        color = CARD_COLORS[0]
+                else:
+                    color = CARD_COLORS[0]
+                
+                swatch = self.app.canvas.create_rectangle(
+                    entry_x, entry_y - swatch_size//2,
+                    entry_x + swatch_size, entry_y + swatch_size//2,
+                    fill=color, outline=COLORS['border'], width=1,
+                    tags=(f"legend_{legend_id}", "legend")
+                )
+                group.append(swatch)
+                
+                # Draw description text
+                desc_text = self.app.canvas.create_text(
+                    entry_x + swatch_size + int(10 * zoom), entry_y, 
+                    text=description or f"Color {color_index}",
+                    anchor="w", font=("Segoe UI", int(10 * zoom)),
+                    fill=COLORS['text_primary'], 
+                    tags=(f"legend_{legend_id}", "legend")
+                )
+                self.store_text_font_size(desc_text, ("Segoe UI", 10))
+                group.append(desc_text)
+
+        self.app.legend_widgets[legend_id] = group
+        
+        # Add event bindings
+        for item in group:
+            self.app.canvas.tag_bind(item, "<Double-Button-1>", 
+                                   lambda e, lid=legend_id: self.app.events.edit_legend(lid))
+        
+        self.add_legend_hover_effects(legend_id, group)
+        logger.info(f"Widget creation complete for legend {legend_id}")
+
+    def add_legend_hover_effects(self, legend_id, group):
+        """Add hover effects to legend widgets"""
+        def on_enter(event):
+            if self.app.events.connecting and self.app.events.connection_start == legend_id:
+                return
+            for item in group:
+                if 'shadow' not in self.app.canvas.gettags(item):
+                    if self.app.canvas.type(item) == 'rectangle':
+                        self.app.canvas.itemconfig(item, outline=COLORS['primary'], width=3)
+        
+        def on_leave(event):
+            if self.app.events.connecting and self.app.events.connection_start == legend_id:
+                return
+            for item in group:
+                if 'shadow' not in self.app.canvas.gettags(item):
+                    if self.app.canvas.type(item) == 'rectangle':
+                        # Restore original border
+                        if self.app.canvas.itemcget(item, 'fill') == COLORS['slate_gray']:
+                            # Header - no outline
+                            self.app.canvas.itemconfig(item, outline='', width=0)
+                        else:
+                            # Main card - restore border
+                            self.app.canvas.itemconfig(item, outline=COLORS['border'], width=2)
+        
+        for item in group:
+            self.app.canvas.tag_bind(item, "<Enter>", on_enter)
+            self.app.canvas.tag_bind(item, "<Leave>", on_leave)
+
+    def highlight_legend_for_connection(self, legend_id):
+        """Highlight a legend for connection"""
+        group = self.app.legend_widgets.get(legend_id, [])
+        
+        for item in group:
+            tags = self.app.canvas.gettags(item)
+            if 'shadow' in tags:
+                continue
+            
+            item_type = self.app.canvas.type(item)
+            if item_type == 'rectangle':
+                # Header
+                if self.app.canvas.itemcget(item, 'fill') == COLORS['slate_gray']:
+                     self.app.canvas.itemconfig(item, fill=COLORS['accent'])
+                # Main card
+                else:
+                     self.app.canvas.itemconfig(item, fill=COLORS['surface_bright'])
+
+    def unhighlight_legend_for_connection(self, legend_id):
+        """Unhighlight a legend for connection"""
+        group = self.app.legend_widgets.get(legend_id, [])
+
+        for item in group:
+            tags = self.app.canvas.gettags(item)
+            if 'shadow' in tags:
+                continue
+
+            item_type = self.app.canvas.type(item)
+            if item_type == 'rectangle':
+                # Header
+                if self.app.canvas.itemcget(item, 'fill') == COLORS['accent']:
+                    self.app.canvas.itemconfig(item, fill=COLORS['slate_gray'])
                 # Main card
                 else:
                     self.app.canvas.itemconfig(item, fill=COLORS['surface'])

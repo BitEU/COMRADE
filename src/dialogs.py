@@ -843,3 +843,196 @@ class NoUpdateDialog:
         """Close the dialog"""
         self.result = "ok"
         self.dialog.destroy()
+
+class LegendDialog:
+    """
+    Dialog for adding/editing legend information
+    """
+    def __init__(self, parent, title, **kwargs):
+        self.result = None
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title(title)
+        self.dialog.geometry("500x700")
+        self.dialog.configure(bg=COLORS['background'])
+        self.dialog.transient(parent)
+        self.dialog.grab_set()
+        self.dialog.resizable(False, False)
+        
+        # Center the dialog
+        self.dialog.update_idletasks()
+        x = (self.dialog.winfo_screenwidth() // 2) - (500 // 2)
+        y = (self.dialog.winfo_screenheight() // 2) - (700 // 2)
+        self.dialog.geometry(f"500x700+{x}+{y}")
+
+        # Main container
+        main_frame = tk.Frame(self.dialog, bg=COLORS['background'])
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=25, pady=25)
+        
+        # Title
+        title_label = tk.Label(main_frame, 
+                              text=title,
+                              font=("Segoe UI", 18, "bold"),
+                              fg=COLORS['primary'],
+                              bg=COLORS['background'])
+        title_label.pack(pady=(0, 25))
+        
+        # Form container
+        form_frame = tk.Frame(main_frame, bg=COLORS['surface'], relief=tk.FLAT, bd=0)
+        form_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 25))
+        
+        # Inside padding
+        inner_frame = tk.Frame(form_frame, bg=COLORS['surface'])
+        inner_frame.pack(fill=tk.BOTH, expand=True, padx=25, pady=25)
+        
+        # Legend title
+        title_container = tk.Frame(inner_frame, bg=COLORS['surface'])
+        title_container.pack(fill=tk.X, pady=(0, 20))
+        
+        tk.Label(title_container,
+                text="Legend Title:",
+                font=("Segoe UI", 12, "bold"),
+                bg=COLORS['surface'],
+                fg=COLORS['text_primary']).pack(anchor=tk.W, pady=(0, 8))
+        
+        title_entry_frame = tk.Frame(title_container, bg=COLORS['border'], relief=tk.SOLID, bd=1)
+        title_entry_frame.pack(fill=tk.X)
+        
+        self.title_entry = tk.Entry(title_entry_frame,
+                                   font=("Segoe UI", 12),
+                                   bg='white',
+                                   fg=COLORS['text_primary'],
+                                   relief=tk.FLAT,
+                                   bd=0)
+        self.title_entry.pack(fill=tk.X, padx=2, pady=2)
+        self.title_entry.insert(0, kwargs.get('title', 'Legend'))
+        
+        # Color entries section
+        entries_container = tk.Frame(inner_frame, bg=COLORS['surface'])
+        entries_container.pack(fill=tk.BOTH, expand=True, pady=(0, 20))
+        
+        tk.Label(entries_container,
+                text="Color Definitions:",
+                font=("Segoe UI", 12, "bold"),
+                bg=COLORS['surface'],
+                fg=COLORS['text_primary']).pack(anchor=tk.W, pady=(0, 8))
+        
+        # Scrollable frame for color entries
+        canvas_frame = tk.Frame(entries_container, bg=COLORS['border'], relief=tk.SOLID, bd=1)
+        canvas_frame.pack(fill=tk.BOTH, expand=True)
+        
+        self.entries_canvas = tk.Canvas(canvas_frame, bg='white', highlightthickness=0)
+        scrollbar = tk.Scrollbar(canvas_frame, orient="vertical", command=self.entries_canvas.yview)
+        self.scrollable_frame = tk.Frame(self.entries_canvas, bg='white')
+        
+        self.scrollable_frame.bind(
+            "<Configure>",
+            lambda e: self.entries_canvas.configure(scrollregion=self.entries_canvas.bbox("all"))
+        )
+        
+        self.entries_canvas.create_window((0, 0), window=self.scrollable_frame, anchor="nw")
+        self.entries_canvas.configure(yscrollcommand=scrollbar.set)
+        
+        self.entries_canvas.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        
+        # Store color entry widgets
+        self.color_entries = {}
+        
+        # Initialize with existing entries or create default ones
+        from .constants import CARD_COLORS
+        existing_entries = kwargs.get('color_entries', {})
+        
+        # Create entries for all available colors
+        for i, color in enumerate(CARD_COLORS):
+            self.add_color_entry(i, existing_entries.get(str(i), ""))
+        
+        # Button frame
+        button_frame = tk.Frame(main_frame, bg=COLORS['background'])
+        button_frame.pack(fill=tk.X)
+        
+        # Cancel button
+        cancel_btn = tk.Button(button_frame,
+                              text="Cancel",
+                              font=("Segoe UI", 11, "bold"),
+                              bg=COLORS['text_secondary'],
+                              fg='white',
+                              relief=tk.FLAT,
+                              padx=20,
+                              pady=8,
+                              command=self.cancel,
+                              cursor='hand2')
+        cancel_btn.pack(side=tk.RIGHT, padx=(10, 0))
+        
+        # OK button
+        ok_btn = tk.Button(button_frame,
+                          text="OK",
+                          font=("Segoe UI", 11, "bold"),
+                          bg=COLORS['primary'],
+                          fg='white',
+                          relief=tk.FLAT,
+                          padx=20,
+                          pady=8,
+                          command=self.ok,
+                          cursor='hand2')
+        ok_btn.pack(side=tk.RIGHT)
+        
+        # Key bindings
+        self.dialog.bind('<Return>', lambda e: self.ok())
+        self.dialog.bind('<Escape>', lambda e: self.cancel())
+        self.dialog.protocol("WM_DELETE_WINDOW", self.cancel)
+        
+        # Focus on title entry
+        self.title_entry.focus()
+        self.title_entry.select_range(0, tk.END)
+    
+    def add_color_entry(self, color_index, description):
+        """Add a color entry row to the scrollable frame"""
+        from .constants import CARD_COLORS
+        
+        row_frame = tk.Frame(self.scrollable_frame, bg='white')
+        row_frame.pack(fill=tk.X, padx=10, pady=5)
+        
+        # Color swatch
+        color = CARD_COLORS[color_index % len(CARD_COLORS)]
+        swatch_frame = tk.Frame(row_frame, bg=color, width=30, height=20, relief=tk.SOLID, bd=1)
+        swatch_frame.pack(side=tk.LEFT, padx=(0, 10))
+        swatch_frame.pack_propagate(False)
+        
+        # Description entry
+        entry_frame = tk.Frame(row_frame, bg=COLORS['border'], relief=tk.SOLID, bd=1)
+        entry_frame.pack(side=tk.LEFT, fill=tk.X, expand=True)
+        
+        entry = tk.Entry(entry_frame,
+                        font=("Segoe UI", 10),
+                        bg='white',
+                        fg=COLORS['text_primary'],
+                        relief=tk.FLAT,
+                        bd=0)
+        entry.pack(fill=tk.X, padx=2, pady=2)
+        entry.insert(0, description)
+        
+        self.color_entries[str(color_index)] = entry
+    
+    def ok(self):
+        """Handle OK button click"""
+        # Validate title is not empty
+        if not self.title_entry.get().strip():
+            messagebox.showerror("Error", "Title is required!", parent=self.dialog)
+            return
+        
+        # Collect color entries (only non-empty ones)
+        color_entries = {}
+        for color_index, entry in self.color_entries.items():
+            text = entry.get().strip()
+            if text:
+                color_entries[color_index] = text
+        
+        self.result = {
+            'title': self.title_entry.get().strip(),
+            'color_entries': color_entries
+        }
+        self.dialog.destroy()
+        
+    def cancel(self):
+        """Handle Cancel button click"""
+        self.dialog.destroy()

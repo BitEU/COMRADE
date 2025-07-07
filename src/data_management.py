@@ -19,7 +19,7 @@ try:
 except ImportError:
     PIL_AVAILABLE = False
 
-from src.models import Person, TextboxCard
+from src.models import Person, TextboxCard, LegendCard
 from src.dialogs import VersionUpdateDialog, NoUpdateDialog
 from src.constants import COLORS, CARD_COLORS, COMRADE_VERSION
 
@@ -86,6 +86,16 @@ class DataManagement:
                             textbox.color, '', 'textbox'
                         ])
                     
+                    # Save legend cards
+                    for legend_id, legend in self.app.legends.items():
+                        # Convert color_entries dict to JSON string for CSV storage
+                        color_entries_json = json.dumps(legend.color_entries) if legend.color_entries else ""
+                        writer.writerow([
+                            legend_id, legend.title, color_entries_json, '', 
+                            '', '', legend.x, legend.y, 
+                            0, '', 'legend'  # legends don't have a color property
+                        ])
+                    
                     writer.writerow(['CONNECTIONS'])
                     writer.writerow(['From_ID', 'To_ID', 'Label'])
                     
@@ -102,6 +112,14 @@ class DataManagement:
                     # Save connections from textboxes
                     for id1, textbox in self.app.textboxes.items():
                         for id2, label in textbox.connections.items():
+                            key = (min(id1, id2), max(id1, id2))
+                            if key not in saved:
+                                writer.writerow([id1, id2, label])
+                                saved.add(key)
+                    
+                    # Save connections from legend cards
+                    for id1, legend in self.app.legends.items():
+                        for id2, label in legend.connections.items():
                             key = (min(id1, id2), max(id1, id2))
                             if key not in saved:
                                 writer.writerow([id1, id2, label])
@@ -191,9 +209,9 @@ class DataManagement:
                         if connections_section:
                             if len(row) >= 3:
                                 id1, id2, label = int(row[0]), int(row[1]), row[2]                            
-                                # Check if IDs exist in either people or textboxes
-                                card1 = self.app.people.get(id1) or self.app.textboxes.get(id1)
-                                card2 = self.app.people.get(id2) or self.app.textboxes.get(id2)
+                                # Check if IDs exist in people, textboxes, or legends
+                                card1 = self.app.people.get(id1) or self.app.textboxes.get(id1) or self.app.legends.get(id1)
+                                card2 = self.app.people.get(id2) or self.app.textboxes.get(id2) or self.app.legends.get(id2)
                                 
                                 if card1 and card2:
                                     card1.connections[id2] = label
@@ -204,16 +222,35 @@ class DataManagement:
                             if len(row) >= 8:
                                 card_id = int(row[0])
                                 
-                                # Check if this is a textbox (new format with Type column)
+                                # Check if this is a textbox or legend (new format with Type column)
                                 is_textbox = False
-                                if len(row) >= 11 and row[10] == 'textbox':
-                                    is_textbox = True
+                                is_legend = False
+                                if len(row) >= 11:
+                                    if row[10] == 'textbox':
+                                        is_textbox = True
+                                    elif row[10] == 'legend':
+                                        is_legend = True
                                 elif len(row) >= 3 and not row[2]:  # Empty DOB might indicate textbox in old format
                                     # Additional heuristic: if name is actually content (longer than typical name)
                                     if len(row[1]) > 50:
                                         is_textbox = True
                                 
-                                if is_textbox:
+                                if is_legend:
+                                    # This is a legend card
+                                    color_entries = {}
+                                    if len(row) > 2 and row[2]:  # color_entries JSON is in the content field
+                                        try:
+                                            color_entries = json.loads(row[2])
+                                        except json.JSONDecodeError:
+                                            logger.warning(f"Invalid color_entries data for legend {card_id}")
+                                    
+                                    legend = LegendCard(row[1], color_entries)
+                                    legend.x = float(row[6])
+                                    legend.y = float(row[7])
+                                    
+                                    self.app.legends[card_id] = legend
+                                    self.app.next_id = max(self.app.next_id, card_id + 1)
+                                elif is_textbox:
                                     # This is a textbox card
                                     textbox = TextboxCard(row[1], row[2] if len(row) > 2 else '')
                                     textbox.x = float(row[6])
@@ -274,6 +311,9 @@ class DataManagement:
                 for textbox_id in self.app.textboxes:
                     self.app.canvas_helpers.create_textbox_widget(textbox_id, zoom=1.0)
                 
+                for legend_id in self.app.legends:
+                    self.app.canvas_helpers.create_legend_widget(legend_id, zoom=1.0)
+                
                 # Draw connections for the base zoom
                 self.app.canvas_helpers.update_connections()
 
@@ -283,7 +323,7 @@ class DataManagement:
                 
                 # Count extracted files
                 total_files = sum(len(person.files) for person in self.app.people.values())
-                messagebox.showinfo("Success", f"Data loaded successfully!\n\nLoaded:\n• {len(self.app.people)} people\n• {len(self.app.textboxes)} textbox cards\n• {total_files} attached files\n\nFiles extracted to: {files_dir}")
+                messagebox.showinfo("Success", f"Data loaded successfully!\n\nLoaded:\n• {len(self.app.people)} people\n• {len(self.app.textboxes)} textbox cards\n• {len(self.app.legends)} legend cards\n• {total_files} attached files\n\nFiles extracted to: {files_dir}")
     
     def _load_legacy_csv(self, csv_filename):
         """Load data from legacy CSV format (backward compatibility)"""
@@ -346,8 +386,8 @@ class DataManagement:
             messagebox.showerror("Error", "PIL (Pillow) library is not installed.\n\nTo use PNG export, please install it with:\npip install Pillow")
             return
             
-        if not self.app.people and not self.app.textboxes:
-            messagebox.showwarning("Warning", "No people or textboxes to export. Please add some content first.")
+        if not self.app.people and not self.app.textboxes and not self.app.legends:
+            messagebox.showwarning("Warning", "No people, textboxes, or legends to export. Please add some content first.")
             return
             
         filename = filedialog.asksaveasfilename(
@@ -389,11 +429,11 @@ class DataManagement:
             connection_labels_to_draw = []
 
             # Draw connections first (so they appear behind cards)
-            # Handle all types of connections: person-person, person-textbox, textbox-textbox
+            # Handle all types of connections: person-person, person-textbox, textbox-textbox, legend-legend, etc.
             for (id1, id2) in self.app.connection_lines.keys():
-                # Get the connection objects (could be person or textbox)
-                card1 = self.app.people.get(id1) or self.app.textboxes.get(id1)
-                card2 = self.app.people.get(id2) or self.app.textboxes.get(id2)
+                # Get the connection objects (could be person, textbox, or legend)
+                card1 = self.app.people.get(id1) or self.app.textboxes.get(id1) or self.app.legends.get(id1)
+                card2 = self.app.people.get(id2) or self.app.textboxes.get(id2) or self.app.legends.get(id2)
                 
                 if card1 and card2:
                     # Get the connection label from either card
@@ -486,7 +526,7 @@ class DataManagement:
                 card_width = content_width + image_width + image_padding + 2 * padding
                 
                 # Determine card height
-                header_height = int(30 * zoom)
+                header_height = int(40 * zoom)
                 line_height = int(20 * zoom)
                 details_height = len(details) * line_height
                 vertical_padding = int(15 * zoom)
@@ -608,7 +648,13 @@ class DataManagement:
                         content_font = None
 
                 # Calculate textbox dimensions with text wrapping
-                title_width = len(textbox.title) * 10 if textbox.title else 100
+                # Calculate title width using actual font if available
+                title_width = 0
+                if title_font and textbox.title:
+                    title_bbox = draw.textbbox((0, 0), textbox.title, font=title_font)
+                    title_width = title_bbox[2] - title_bbox[0]
+                else:
+                    title_width = len(textbox.title) * int(10 * dpi_scale) if textbox.title else int(100 * dpi_scale)
                 
                 # For content, we'll use a fixed width for wrapping and calculate height based on wrapped lines
                 content_char_width = 70  # Characters per line for export (higher than canvas for better readability)
@@ -632,11 +678,36 @@ class DataManagement:
                             if current_line:
                                 wrapped_lines.append(current_line.strip())
                 
-                base_width = max(title_width, content_char_width * 8, 250)
-                base_height = max(120, 50 + len(wrapped_lines) * 20)
+                # Calculate dimensions with DPI scaling like person cards
+                # Calculate actual content width based on wrapped lines
+                content_width = 0
+                if content_font and wrapped_lines:
+                    for line in wrapped_lines:
+                        if line.strip():
+                            line_bbox = draw.textbbox((0, 0), line, font=content_font)
+                            line_width = line_bbox[2] - line_bbox[0]
+                            content_width = max(content_width, line_width)
+                else:
+                    # Fallback calculation if font is not available
+                    if wrapped_lines:
+                        max_line_length = max(len(line) for line in wrapped_lines if line.strip())
+                        content_width = max_line_length * int(6 * dpi_scale)
                 
-                card_width = int(base_width * zoom)
-                card_height = int(base_height * zoom)
+                padding = int(15 * dpi_scale)
+                base_width = max(title_width, content_width, int(250 * dpi_scale))
+                
+                # Calculate height based on content lines with DPI scaling
+                header_height = int(45 * zoom)
+                line_height = int(18 * zoom)
+                content_height = len(wrapped_lines) * line_height
+                vertical_padding = int(15 * zoom)
+                
+                base_card_height = header_height + content_height + 2 * vertical_padding
+                min_height = int(120 * zoom)
+                base_height = max(base_card_height, min_height)
+                
+                card_width = base_width + 2 * padding
+                card_height = base_height
                 
                 half_width = card_width // 2
                 half_height = card_height // 2
@@ -662,7 +733,7 @@ class DataManagement:
                 ], fill=COLORS['surface'], outline=textbox_color, width=card_border_width)
                 
                 # Draw header
-                header_height = int(35 * zoom)
+                header_height = int(45 * zoom)
                 draw.rectangle([
                     x - half_width, y - half_height,
                     x + half_width, y - half_height + header_height
@@ -716,6 +787,117 @@ class DataManagement:
                             draw.text((content_x, more_y), "...", 
                                     fill=COLORS['text_secondary'])
 
+            # Draw legend cards
+            for legend_id, legend in self.app.legends.items():
+                x = int(legend.x * zoom)
+                y = int(legend.y * zoom)
+
+                # Try to load fonts for legend with DPI scaling
+                title_font_size = int(12 * dpi_scale)
+                entry_font_size = int(10 * dpi_scale)
+                try:
+                    title_font = ImageFont.truetype("arial.ttf", title_font_size)
+                    entry_font = ImageFont.truetype("arial.ttf", entry_font_size)
+                except:
+                    try:
+                        title_font = ImageFont.load_default()
+                        entry_font = ImageFont.load_default()
+                    except:
+                        title_font = None
+                        entry_font = None
+
+                # Calculate legend dimensions
+                title_width = len(legend.title) * 10 if legend.title else 100
+                
+                # Calculate width based on longest description
+                max_desc_width = 0
+                for desc in legend.color_entries.values():
+                    if desc:
+                        max_desc_width = max(max_desc_width, len(desc) * 8)
+                
+                # Add space for color swatch + padding
+                swatch_width = 30
+                padding = 20
+                
+                base_width = max(title_width, max_desc_width + swatch_width + padding, 250)
+                base_height = max(120, 60 + len(legend.color_entries) * 30)
+                
+                card_width = int(base_width * zoom)
+                card_height = int(base_height * zoom)
+                
+                half_width = card_width // 2
+                half_height = card_height // 2
+
+                # Draw legend shadow with DPI scaling
+                shadow_offset = int(3 * dpi_scale)
+                for i in range(3, 0, -1):
+                    shadow_color = '#e0e0e0' if i == 3 else ('#d0d0d0' if i == 2 else '#c0c0c0')
+                    offset = int(i * dpi_scale)
+                    draw.rectangle([
+                        x - half_width + offset, y - half_height + offset,
+                        x + half_width + offset, y + half_height + offset
+                    ], fill=shadow_color)
+
+                # Draw main legend card with DPI scaling
+                card_border_width = max(1, int(2 * dpi_scale))
+                draw.rectangle([
+                    x - half_width, y - half_height,
+                    x + half_width, y + half_height
+                ], fill=COLORS['surface'], outline=COLORS['border'], width=card_border_width)
+                
+                # Draw header
+                header_height = int(45 * zoom)
+                draw.rectangle([
+                    x - half_width, y - half_height,
+                    x + half_width, y - half_height + header_height
+                ], fill=COLORS['slate_gray'])
+
+                # Draw title in header (no folder icon)
+                title_x = x - half_width + int(15 * zoom)
+                title_y = y - half_height + int(17 * zoom)
+                
+                # Draw title text
+                draw.text((title_x, title_y - int(6 * zoom)), 
+                        legend.title or "Legend", fill='white', font=title_font or None)
+
+                # Draw color entries
+                if legend.color_entries:
+                    entry_start_y = y - half_height + header_height + int(15 * zoom)
+                    entry_x = x - half_width + int(15 * zoom)
+                    
+                    line_height = int(25 * zoom)
+                    swatch_size = int(15 * zoom)
+                    
+                    for i, (color_index, description) in enumerate(legend.color_entries.items()):
+                        entry_y = entry_start_y + (i * line_height)
+                        
+                        # Draw color swatch
+                        if isinstance(color_index, (int, str)):
+                            try:
+                                color_idx = int(color_index)
+                                color = CARD_COLORS[color_idx % len(CARD_COLORS)]
+                            except (ValueError, IndexError):
+                                color = CARD_COLORS[0]
+                        else:
+                            color = CARD_COLORS[0]
+                        
+                        swatch_border_width = max(1, int(1 * dpi_scale))
+                        draw.rectangle([
+                            entry_x, entry_y - swatch_size//2,
+                            entry_x + swatch_size, entry_y + swatch_size//2
+                        ], fill=color, outline=COLORS['border'], width=swatch_border_width)
+                        
+                        # Draw description text
+                        desc_x = entry_x + swatch_size + int(10 * zoom)
+                        if entry_font:
+                            draw.text((desc_x, entry_y - int(5 * zoom)), 
+                                    description or f"Color {color_index}",
+                                    fill=COLORS['text_primary'], font=entry_font)
+                        else:
+                            draw.text((desc_x, entry_y - int(5 * zoom)), 
+                                    description or f"Color {color_index}",
+                                    fill=COLORS['text_primary'])
+
             # Draw connection labels on top of cards
             for conn in connection_labels_to_draw:
                 mid_x = (conn['x1'] + conn['x2']) // 2
@@ -767,11 +949,13 @@ class DataManagement:
         # Check if there's any data to clear
         total_people = len(self.app.people)
         total_textboxes = len(self.app.textboxes)
+        total_legends = len(self.app.legends)
         total_connections = sum(len(person.connections) for person in self.app.people.values()) // 2
         total_textbox_connections = sum(len(textbox.connections) for textbox in self.app.textboxes.values()) // 2
+        total_legend_connections = sum(len(legend.connections) for legend in self.app.legends.values()) // 2
         
-        if not total_people and not total_textboxes:
-            messagebox.showinfo("Nothing to Clear", "There are no people, textboxes, or connections to clear.")
+        if not total_people and not total_textboxes and not total_legends:
+            messagebox.showinfo("Nothing to Clear", "There are no people, textboxes, legends, or connections to clear.")
             return
             
         # Build confirmation message
@@ -780,8 +964,10 @@ class DataManagement:
             items_to_delete.append(f"• {total_people} people")
         if total_textboxes > 0:
             items_to_delete.append(f"• {total_textboxes} textbox cards")
-        if total_connections > 0 or total_textbox_connections > 0:
-            total_all_connections = total_connections + total_textbox_connections
+        if total_legends > 0:
+            items_to_delete.append(f"• {total_legends} legend cards")
+        if total_connections > 0 or total_textbox_connections > 0 or total_legend_connections > 0:
+            total_all_connections = total_connections + total_textbox_connections + total_legend_connections
             items_to_delete.append(f"• {total_all_connections} connections")
             
         result = messagebox.askyesno(
@@ -802,6 +988,8 @@ class DataManagement:
         self.app.person_widgets.clear()
         self.app.textboxes.clear()
         self.app.textbox_widgets.clear()
+        self.app.legends.clear()
+        self.app.legend_widgets.clear()
         self.app.connection_lines.clear()
         self.app.original_font_sizes.clear()
         self.app.original_image_sizes.clear()
@@ -810,6 +998,7 @@ class DataManagement:
         self.app.base_image_cache.clear()
         self.app.selected_person = None
         self.app.selected_textbox = None
+        self.app.selected_legend = None
         self.app.selected_connection = None
         self.app.next_id = 1
         

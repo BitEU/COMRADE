@@ -1,6 +1,6 @@
 from datetime import datetime
 from src.constants import COLORS, CARD_COLORS
-from src.dialogs import ConnectionLabelDialog, PersonDialog, TextboxDialog
+from src.dialogs import ConnectionLabelDialog, PersonDialog, TextboxDialog, LegendDialog
 from tkinter import messagebox
 
 # This file will contain event handling logic.
@@ -15,6 +15,7 @@ class EventHandlers:
         self.temp_line = None
         self.selected_person = None
         self.selected_textbox = None
+        self.selected_legend = None
         self.selected_connection = None
         self.last_zoom = 1.0
         self.zoom_debounce_timer = None
@@ -85,6 +86,7 @@ class EventHandlers:
         self.clear_connection_selection()
         self.selected_person = None
         self.selected_textbox = None
+        self.selected_legend = None
         self.dragging = False
 
         if not items:
@@ -119,7 +121,17 @@ class EventHandlers:
                         self.dragging = True
                         return # Exit after handling the click
             
-            # If not a connection or textbox, check for a person
+            # Check for legend
+            if any("legend" in tag for tag in tags):
+                for tag in tags:
+                    if tag.startswith("legend_"):
+                        legend_id = int(tag.split("_")[1])
+                        self.selected_legend = legend_id
+                        self.drag_data = {"x": canvas_x, "y": canvas_y}
+                        self.dragging = True
+                        return # Exit after handling the click
+            
+            # If not a connection, textbox, or legend, check for a person
             if any("person" in tag for tag in tags):
                 for tag in tags:
                     if tag.startswith("person_"):
@@ -130,7 +142,7 @@ class EventHandlers:
                         return # Exit after handling the click
 
     def on_canvas_drag(self, event):
-        if self.dragging and (self.selected_person or self.selected_textbox):
+        if self.dragging and (self.selected_person or self.selected_textbox or self.selected_legend):
             zoom = self.last_zoom
             
             # Convert screen coordinates to canvas coordinates
@@ -164,6 +176,16 @@ class EventHandlers:
                 textbox_items = self.app.textbox_widgets[self.selected_textbox]
                 for item in textbox_items:
                     self.app.canvas.move(item, dx_canvas, dy_canvas)
+            
+            elif self.selected_legend:
+                # Update logical (unscaled) position using world delta
+                self.app.legends[self.selected_legend].x += dx_world
+                self.app.legends[self.selected_legend].y += dy_world
+
+                # Move existing canvas items directly during drag (much more efficient)
+                legend_items = self.app.legend_widgets[self.selected_legend]
+                for item in legend_items:
+                    self.app.canvas.move(item, dx_canvas, dy_canvas)
 
             # Update connections immediately (but efficiently)
             self.app.canvas_helpers.update_connections()  # Update connections
@@ -171,7 +193,7 @@ class EventHandlers:
             self.drag_data = {"x": canvas_x, "y": canvas_y}
 
     def on_canvas_release(self, event):
-        if self.dragging and (self.selected_person or self.selected_textbox):
+        if self.dragging and (self.selected_person or self.selected_textbox or self.selected_legend):
             self.dragging = False
             
             # Don't refresh the widget - it's already at the correct position and scale
@@ -181,6 +203,8 @@ class EventHandlers:
                     self.app.root.after(50, lambda: self.app.refresh_person_widget(self._pending_color_refresh))
                 elif self.selected_textbox:
                     self.app.root.after(50, lambda: self.app.refresh_textbox_widget(self._pending_color_refresh))
+                elif self.selected_legend:
+                    self.app.root.after(50, lambda: self.app.refresh_legend_widget(self._pending_color_refresh))
                 self._pending_color_refresh = None
         else:
             self.dragging = False
@@ -490,6 +514,27 @@ class EventHandlers:
                 self.app.refresh_textbox_widget(textbox_id)
                 self.app.update_status(f"Updated textbox '{textbox.title}'")
 
+    def edit_legend(self, legend_id):
+        """Handle editing a legend's details via a dialog."""
+        if legend_id in self.app.legends:
+            legend = self.app.legends[legend_id]
+            
+            # Use a dialog to get updated information
+            dialog = LegendDialog(self.app.root, 
+                                 "Edit Legend Card", 
+                                 title=legend.title, 
+                                 color_entries=legend.color_entries)
+            self.app.root.wait_window(dialog.dialog)
+            
+            if dialog.result:
+                # Update legend data
+                legend.title = dialog.result['title']
+                legend.color_entries = dialog.result['color_entries']
+                
+                # Refresh the specific legend's widget on the canvas
+                self.app.refresh_legend_widget(legend_id)
+                self.app.update_status(f"Updated legend '{legend.title}'")
+
     def edit_connection_label(self):
         """Edit the label of the selected connection"""
         if not self.selected_connection:
@@ -497,9 +542,9 @@ class EventHandlers:
             
         id1, id2 = self.selected_connection
         
-        # Get card objects (could be person or textbox)
-        card1 = self.app.people.get(id1) or self.app.textboxes.get(id1)
-        card2 = self.app.people.get(id2) or self.app.textboxes.get(id2)
+        # Get card objects (could be person, textbox, or legend)
+        card1 = self.app.people.get(id1) or self.app.textboxes.get(id1) or self.app.legends.get(id1)
+        card2 = self.app.people.get(id2) or self.app.textboxes.get(id2) or self.app.legends.get(id2)
         
         if not card1 or not card2:
             return
@@ -530,9 +575,9 @@ class EventHandlers:
             
         id1, id2 = self.selected_connection
         
-        # Get card objects (could be person or textbox)
-        card1 = self.app.people.get(id1) or self.app.textboxes.get(id1)
-        card2 = self.app.people.get(id2) or self.app.textboxes.get(id2)
+        # Get card objects (could be person, textbox, or legend)
+        card1 = self.app.people.get(id1) or self.app.textboxes.get(id1) or self.app.legends.get(id1)
+        card2 = self.app.people.get(id2) or self.app.textboxes.get(id2) or self.app.legends.get(id2)
         
         if not card1 or not card2:
             return

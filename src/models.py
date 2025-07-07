@@ -126,3 +126,57 @@ class TextboxCard:
         textbox.y = data.get('y', 0)
         textbox.connections = data.get('connections', {})
         return textbox
+
+class LegendCard:
+    """
+    Represents a legend card with color entries and descriptions
+    """
+    def __init__(self, title="Legend", color_entries=None):
+        self.title = title
+        self.x = 0
+        self.y = 0
+        self.color_entries = color_entries or {}  # {color_index: description}
+        self.connections = {}  # {card_id: label} - can connect to people and textboxes
+        
+    def __repr__(self):
+        return f"LegendCard(title='{self.title}', entries={len(self.color_entries)}, connections={len(self.connections)})"
+    
+    def add_connection(self, card_id, label):
+        """Add a connection to another card"""
+        self.connections[card_id] = label
+        
+    def remove_connection(self, card_id):
+        """Remove a connection to another card"""
+        if card_id in self.connections:
+            del self.connections[card_id]
+    
+    def has_connection(self, card_id):
+        """Check if connected to another card"""
+        return card_id in self.connections
+    
+    def get_connection_label(self, card_id):
+        """Get the label for a connection"""
+        return self.connections.get(card_id, "")
+    
+    def to_dict(self):
+        """Convert to dictionary for serialization"""
+        return {
+            'title': self.title,
+            'x': self.x,
+            'y': self.y,
+            'color_entries': self.color_entries,
+            'connections': self.connections,
+            'type': 'legend'  # Add type identifier for serialization
+        }
+    
+    @classmethod
+    def from_dict(cls, data):
+        """Create LegendCard from dictionary"""
+        legend = cls(
+            title=data.get('title', 'Legend'),
+            color_entries=data.get('color_entries', {})
+        )
+        legend.x = data.get('x', 0)
+        legend.y = data.get('y', 0)
+        legend.connections = data.get('connections', {})
+        return legend

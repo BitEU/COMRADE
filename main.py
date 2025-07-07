@@ -24,8 +24,8 @@ except ImportError:
 
 # Import from supporting modules
 from src.constants import COLORS, CARD_COLORS
-from src.models import Person, TextboxCard
-from src.dialogs import PersonDialog, TextboxDialog, ConnectionLabelDialog, VersionUpdateDialog, NoUpdateDialog
+from src.models import Person, TextboxCard, LegendCard
+from src.dialogs import PersonDialog, TextboxDialog, LegendDialog, ConnectionLabelDialog, VersionUpdateDialog, NoUpdateDialog
 from src.utils import setup_logging, darken_color
 from src.ui_setup import UISetup
 from src.event_handlers import EventHandlers
@@ -49,8 +49,10 @@ class ConnectionApp:
         # Data structures
         self.people = {}  # {id: Person}
         self.textboxes = {}  # {id: TextboxCard}
+        self.legends = {}  # {id: LegendCard}
         self.person_widgets = {}  # {id: canvas_item_id}
         self.textbox_widgets = {}  # {id: canvas_item_id}
+        self.legend_widgets = {}  # {id: canvas_item_id}
         self.connection_lines = {}  # {(id1, id2): (line_id, label_id)}
         self.original_font_sizes = {}  # {canvas_item_id: original_font_size} for proper text scaling
         self.original_image_sizes = {}  # {canvas_item_id: (original_width, original_height)} for proper image scaling
@@ -64,6 +66,8 @@ class ConnectionApp:
         self.zoom_debounce_timer = None  # Timer for debouncing zoom events
         
         self.selected_person = None
+        self.selected_textbox = None
+        self.selected_legend = None
         self.selected_connection = None  # Track selected connection for editing/deletion
         self.dragging = False
         self.drag_data = {"x": 0, "y": 0}
@@ -197,6 +201,55 @@ class ConnectionApp:
             logger.info(f"Created widget for textbox {textbox_id}")
         else:
             logger.info("Dialog was cancelled")
+
+    def add_legend(self):
+        logger.info("Add legend button clicked")
+        dialog = LegendDialog(self.root, "Add Legend Card")
+        self.root.wait_window(dialog.dialog)  # Wait for dialog to close
+        logger.info(f"Dialog result: {dialog.result}")
+        if dialog.result:
+            legend = LegendCard(**dialog.result)
+            legend_id = self.next_id
+            self.next_id += 1
+            logger.info(f"Creating legend with ID {legend_id}: {legend.title}")
+            
+            # Position using box layout (offset from people and textboxes)
+            cols = 2
+            col_width = 400
+            row_height = 200
+            start_x = 200
+            start_y = 120
+            total_cards = len(self.people) + len(self.textboxes) + len(self.legends)
+            row = total_cards // cols
+            col = total_cards % cols
+            legend.x = start_x + col * col_width
+            legend.y = start_y + row * row_height
+            logger.info(f"Positioned legend at ({legend.x}, {legend.y})")
+            
+            self.legends[legend_id] = legend
+            logger.info(f"Added legend to data structure. Total legends: {len(self.legends)}")
+            self.canvas_helpers.create_legend_widget(legend_id)
+            logger.info(f"Created widget for legend {legend_id}")
+        else:
+            logger.info("Dialog was cancelled")
+
+    def refresh_legend_widget(self, legend_id):
+        """Refresh a legend's widget on the canvas"""
+        # Don't refresh during zoom operations to avoid double-scaling
+        if hasattr(self.events, '_zooming') and self.events._zooming:
+            return
+            
+        logger.info(f"Refreshing widget for legend {legend_id}")
+        # Remove the existing widget
+        if legend_id in self.legend_widgets:
+            legend_items = self.legend_widgets[legend_id]
+            for item in legend_items:
+                self.canvas.delete(item)
+            del self.legend_widgets[legend_id]
+        
+        # Create a new widget with current zoom level
+        self.canvas_helpers.create_legend_widget(legend_id, zoom=self.events.last_zoom)
+        logger.info(f"Refreshed widget for legend {legend_id}")
 
     def delete_person(self):
         """Delete the currently selected person"""
