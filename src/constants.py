@@ -3,7 +3,7 @@
 Constants and configuration for the People Connection Visualizer
 """
 
-COMRADE_VERSION = "0.6.6"
+COMRADE_VERSION = "0.6.7"
 
 # Modern color scheme
 COLORS = {

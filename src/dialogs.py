@@ -237,10 +237,10 @@ class TextboxDialog:
     """
     Dialog for adding/editing textbox card information
     """
-    def __init__(self, parent, title, **kwargs):
+    def __init__(self, parent, dialog_title, **kwargs):
         self.result = None
         self.dialog = tk.Toplevel(parent)
-        self.dialog.title(f"📝 {title}")
+        self.dialog.title(f"📝 {dialog_title}")
         self.dialog.geometry("500x650")
         self.dialog.configure(bg=COLORS['background'])
         self.dialog.transient(parent)
@@ -259,7 +259,7 @@ class TextboxDialog:
         
         # Title
         title_label = tk.Label(main_frame, 
-                              text=title,
+                              text=dialog_title,
                               font=("Segoe UI", 18, "bold"),
                               fg=COLORS['primary'],
                               bg=COLORS['background'])

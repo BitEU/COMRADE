@@ -539,10 +539,31 @@ class CanvasHelpers:
         
         # Calculate card dimensions based on content
         title_width = len(textbox.title) * 10 if textbox.title else 100
-        content_lines = textbox.content.split('\n') if textbox.content else []
-        content_width = max([len(line) for line in content_lines] + [0]) * 8
-        base_width = max(title_width, content_width, 250)
-        base_height = max(120, 50 + len(content_lines) * 20)
+        
+        # For content, we'll use a fixed width for wrapping and calculate height based on wrapped lines
+        content_char_width = 70  # Characters per line for wrapping
+        wrapped_lines = []
+        if textbox.content:
+            content_lines = textbox.content.split('\n')
+            for line in content_lines:
+                if len(line) <= content_char_width:
+                    wrapped_lines.append(line)
+                else:
+                    # Wrap long lines
+                    words = line.split(' ')
+                    current_line = ''
+                    for word in words:
+                        if len(current_line + word) <= content_char_width:
+                            current_line += word + ' '
+                        else:
+                            if current_line:
+                                wrapped_lines.append(current_line.strip())
+                            current_line = word + ' '
+                    if current_line:
+                        wrapped_lines.append(current_line.strip())
+        
+        base_width = max(title_width, content_char_width * 8, 250)
+        base_height = max(120, 50 + len(wrapped_lines) * 20)
         
         card_width = base_width * zoom
         card_height = base_height * zoom
@@ -610,18 +631,18 @@ class CanvasHelpers:
             content_start_y = y - half_height + header_height + int(15 * zoom)
             content_x = x - half_width + int(15 * zoom)
             
-            # Split content into lines and display
-            content_lines = textbox.content.split('\n')
+            # Use wrapped lines for display
             line_height = int(18 * zoom)
             
-            for i, line in enumerate(content_lines[:8]):  # Limit to 8 lines for display
+            # Limit display to 8 lines for the card
+            display_lines = wrapped_lines[:8]
+            
+            for i, line in enumerate(display_lines):
                 if line.strip():  # Only show non-empty lines
                     line_y = content_start_y + (i * line_height)
-                    # Truncate long lines
-                    display_line = line[:50] + "..." if len(line) > 50 else line
                     
                     content_item = self.app.canvas.create_text(
-                        content_x, line_y, text=display_line, anchor="nw", 
+                        content_x, line_y, text=line, anchor="nw", 
                         font=("Segoe UI", int(10 * zoom)),
                         fill=COLORS['text_primary'], 
                         tags=(f"textbox_{textbox_id}", "textbox")
@@ -630,7 +651,7 @@ class CanvasHelpers:
                     group.append(content_item)
             
             # Show "..." if there are more lines
-            if len(content_lines) > 8:
+            if len(wrapped_lines) > 8:
                 more_text = self.app.canvas.create_text(
                     content_x, content_start_y + (8 * line_height), 
                     text="...", anchor="nw", 

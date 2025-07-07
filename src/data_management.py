@@ -607,13 +607,33 @@ class DataManagement:
                         title_font = None
                         content_font = None
 
-                # Calculate textbox dimensions
+                # Calculate textbox dimensions with text wrapping
                 title_width = len(textbox.title) * 10 if textbox.title else 100
-                content_lines = textbox.content.split('\n') if textbox.content else []
-                content_width = max([len(line) for line in content_lines] + [0]) * 8
                 
-                base_width = max(title_width, content_width, 250)
-                base_height = max(120, 50 + len(content_lines) * 20)
+                # For content, we'll use a fixed width for wrapping and calculate height based on wrapped lines
+                content_char_width = 70  # Characters per line for export (higher than canvas for better readability)
+                wrapped_lines = []
+                if textbox.content:
+                    content_lines = textbox.content.split('\n')
+                    for line in content_lines:
+                        if len(line) <= content_char_width:
+                            wrapped_lines.append(line)
+                        else:
+                            # Wrap long lines
+                            words = line.split(' ')
+                            current_line = ''
+                            for word in words:
+                                if len(current_line + word) <= content_char_width:
+                                    current_line += word + ' '
+                                else:
+                                    if current_line:
+                                        wrapped_lines.append(current_line.strip())
+                                    current_line = word + ' '
+                            if current_line:
+                                wrapped_lines.append(current_line.strip())
+                
+                base_width = max(title_width, content_char_width * 8, 250)
+                base_height = max(120, 50 + len(wrapped_lines) * 20)
                 
                 card_width = int(base_width * zoom)
                 card_height = int(base_height * zoom)
@@ -671,25 +691,23 @@ class DataManagement:
                     content_start_y = y - half_height + header_height + int(15 * zoom)
                     content_x = x - half_width + int(15 * zoom)
                     
-                    # Split content into lines and display (limit to 8 lines for export)
-                    display_lines = content_lines[:8]
+                    # Use wrapped lines for display (limit to 8 lines for export)
+                    display_lines = wrapped_lines[:8]
                     line_height = int(18 * zoom)
                     
                     for i, line in enumerate(display_lines):
                         if line.strip():  # Only show non-empty lines
                             line_y = content_start_y + (i * line_height)
-                            # Truncate long lines for display
-                            display_line = line[:50] + "..." if len(line) > 50 else line
                             
                             if content_font:
-                                draw.text((content_x, line_y), display_line, 
+                                draw.text((content_x, line_y), line, 
                                         fill=COLORS['text_primary'], font=content_font)
                             else:
-                                draw.text((content_x, line_y), display_line, 
+                                draw.text((content_x, line_y), line, 
                                         fill=COLORS['text_primary'])
                     
                     # Show "..." if there are more lines
-                    if len(content_lines) > 8:
+                    if len(wrapped_lines) > 8:
                         more_y = content_start_y + (8 * line_height)
                         if content_font:
                             draw.text((content_x, more_y), "...", 
