@@ -162,21 +162,32 @@ class CanvasHelpers:
         self.app.connection_lines.clear()
 
         # Redraw all connections
+        # Check connections from people
         for id1, p1 in self.app.people.items():
             for id2, label in p1.connections.items():
-                if id2 in self.app.people:
+                if id2 in self.app.people or id2 in self.app.textboxes:
                     # Ensure we only draw each connection once
                     if id1 < id2:
                         self.draw_connection(id1, id2, label, zoom)
+        
+        # Check connections from textboxes (to avoid duplication, only check textbox-to-textbox with higher ID)
+        for id1, t1 in self.app.textboxes.items():
+            for id2, label in t1.connections.items():
+                if id2 in self.app.textboxes and id1 < id2:
+                    self.draw_connection(id1, id2, label, zoom)
 
     def draw_connection(self, id1, id2, label, zoom=1.0):
         """Draw a single connection line and its label, scaled by zoom"""
-        p1 = self.app.people[id1]
-        p2 = self.app.people[id2]
+        # Get card objects (could be person or textbox)
+        card1 = self.app.people.get(id1) or self.app.textboxes.get(id1)
+        card2 = self.app.people.get(id2) or self.app.textboxes.get(id2)
+        
+        if not card1 or not card2:
+            return
         
         # Get scaled coordinates
-        x1, y1 = p1.x * zoom, p1.y * zoom
-        x2, y2 = p2.x * zoom, p2.y * zoom
+        x1, y1 = card1.x * zoom, card1.y * zoom
+        x2, y2 = card2.x * zoom, card2.y * zoom
         
         # Create the main line
         line = self.app.canvas.create_line(x1, y1, x2, y2, fill=COLORS['text_secondary'], width=2, tags=("connection", f"connection_{id1}_{id2}"))
@@ -238,8 +249,9 @@ class CanvasHelpers:
         if bg_rect_id and label_id:
             self.app.canvas.tag_raise(label_id, bg_rect_id)
 
-        # Ensure person widgets are on top of lines
+        # Ensure person and textbox widgets are on top of lines
         self.app.canvas.tag_raise("person")
+        self.app.canvas.tag_raise("textbox")
     
     def add_grid_pattern(self):
         canvas_width = self.app.fixed_canvas_width
@@ -453,13 +465,224 @@ class CanvasHelpers:
             self.app.canvas.tag_bind(item, "<Enter>", on_enter)
             self.app.canvas.tag_bind(item, "<Leave>", on_leave)
 
+    def highlight_card_for_connection(self, card_id):
+        """Highlight a card (person or textbox) for connection"""
+        if card_id in self.app.people:
+            self.highlight_person_for_connection(card_id)
+        elif card_id in self.app.textboxes:
+            self.highlight_textbox_for_connection(card_id)
+    
+    def unhighlight_card_for_connection(self, card_id):
+        """Unhighlight a card (person or textbox) for connection"""
+        if card_id in self.app.people:
+            self.unhighlight_person_for_connection(card_id)
+        elif card_id in self.app.textboxes:
+            self.unhighlight_textbox_for_connection(card_id)
+
+    def highlight_textbox_for_connection(self, textbox_id):
+        """Highlight a textbox for connection"""
+        group = self.app.textbox_widgets.get(textbox_id, [])
+        textbox_color = CARD_COLORS[self.app.textboxes[textbox_id].color % len(CARD_COLORS)]
+        
+        for item in group:
+            tags = self.app.canvas.gettags(item)
+            if 'shadow' in tags:
+                continue
+            
+            item_type = self.app.canvas.type(item)
+            if item_type == 'rectangle':
+                # Header
+                if self.app.canvas.itemcget(item, 'fill') == textbox_color:
+                     self.app.canvas.itemconfig(item, fill=COLORS['accent'])
+                # Main card
+                else:
+                     self.app.canvas.itemconfig(item, fill=COLORS['surface_bright'])
+
+    def unhighlight_textbox_for_connection(self, textbox_id):
+        """Unhighlight a textbox for connection"""
+        group = self.app.textbox_widgets.get(textbox_id, [])
+        textbox = self.app.textboxes[textbox_id]
+        textbox_color = CARD_COLORS[textbox.color % len(CARD_COLORS)]
+
+        for item in group:
+            tags = self.app.canvas.gettags(item)
+            if 'shadow' in tags:
+                continue
+
+            item_type = self.app.canvas.type(item)
+            if item_type == 'rectangle':
+                # Header
+                if self.app.canvas.itemcget(item, 'fill') == COLORS['accent']:
+                    self.app.canvas.itemconfig(item, fill=textbox_color)
+                # Main card
+                else:
+                    self.app.canvas.itemconfig(item, fill=COLORS['surface'])
+
+    def create_textbox_widget(self, textbox_id, zoom=None):
+        """Create a textbox card widget on the canvas"""
+        if self.app.events.dragging:
+            logger.warning(f"Attempted to create widget for textbox {textbox_id} during drag - skipping")
+            return
+            
+        logger.info(f"Creating widget for textbox {textbox_id}")
+        textbox = self.app.textboxes[textbox_id]
+        if zoom is None:
+            zoom = self.app.events.last_zoom if hasattr(self.app.events, 'last_zoom') else 1.0
+
+        if not hasattr(textbox, 'base_x'):
+            textbox.base_x = textbox.x
+            textbox.base_y = textbox.y
+        x = textbox.x * zoom
+        y = textbox.y * zoom
+        
+        group = []
+        
+        # Calculate card dimensions based on content
+        title_width = len(textbox.title) * 10 if textbox.title else 100
+        content_lines = textbox.content.split('\n') if textbox.content else []
+        content_width = max([len(line) for line in content_lines] + [0]) * 8
+        base_width = max(title_width, content_width, 250)
+        base_height = max(120, 50 + len(content_lines) * 20)
+        
+        card_width = base_width * zoom
+        card_height = base_height * zoom
+        
+        half_width = card_width // 2
+        half_height = card_height // 2
+        
+        # Create shadow effect
+        shadow_offset = int(3 * zoom)
+        for i in range(3, 0, -1):
+            shadow_color = '#e0e0e0' if i == 3 else ('#d0d0d0' if i == 2 else '#c0c0c0')
+            shadow = self.app.canvas.create_rectangle(
+                x - half_width + i, y - half_height + i,
+                x + half_width + i, y + half_height + i,
+                fill=shadow_color, outline='', width=0,
+                tags=(f"textbox_{textbox_id}", "textbox", "shadow")
+            )
+            group.append(shadow)
+
+        textbox_color = CARD_COLORS[textbox.color % len(CARD_COLORS)]
+        
+        # Main card
+        main_card = self.app.canvas.create_rectangle(
+            x - half_width, y - half_height, x + half_width, y + half_height,
+            fill=COLORS['surface'], outline=textbox_color, width=2,
+            tags=(f"textbox_{textbox_id}", "textbox")
+        )
+        group.append(main_card)
+        
+        # Header
+        header_height = int(35 * zoom)
+        header = self.app.canvas.create_rectangle(
+            x - half_width, y - half_height, x + half_width, y - half_height + header_height,
+            fill=textbox_color, outline='', width=0,
+            tags=(f"textbox_{textbox_id}", "textbox")
+        )
+        group.append(header)
+        
+        # Icon and title in header
+        icon_x = x - half_width + int(15 * zoom)
+        icon_y = y - half_height + int(17 * zoom)
+        
+        # Document icon
+        icon = self.app.canvas.create_text(
+            icon_x, icon_y, text="📝",
+            font=("Segoe UI Emoji", int(12 * zoom)), fill='white',
+            tags=(f"textbox_{textbox_id}", "textbox")
+        )
+        self.store_text_font_size(icon, ("Segoe UI Emoji", 12))
+        group.append(icon)
+
+        # Title text
+        title_text = self.app.canvas.create_text(
+            icon_x + int(25 * zoom), icon_y,
+            text=textbox.title or "Untitled",
+            anchor="w", font=("Segoe UI", int(12 * zoom), "bold"), 
+            fill='white',
+            tags=(f"textbox_{textbox_id}", "textbox")
+        )
+        self.store_text_font_size(title_text, ("Segoe UI", 12, "bold"))
+        group.append(title_text)
+
+        # Content area
+        if textbox.content:
+            content_start_y = y - half_height + header_height + int(15 * zoom)
+            content_x = x - half_width + int(15 * zoom)
+            
+            # Split content into lines and display
+            content_lines = textbox.content.split('\n')
+            line_height = int(18 * zoom)
+            
+            for i, line in enumerate(content_lines[:8]):  # Limit to 8 lines for display
+                if line.strip():  # Only show non-empty lines
+                    line_y = content_start_y + (i * line_height)
+                    # Truncate long lines
+                    display_line = line[:50] + "..." if len(line) > 50 else line
+                    
+                    content_item = self.app.canvas.create_text(
+                        content_x, line_y, text=display_line, anchor="nw", 
+                        font=("Segoe UI", int(10 * zoom)),
+                        fill=COLORS['text_primary'], 
+                        tags=(f"textbox_{textbox_id}", "textbox")
+                    )
+                    self.store_text_font_size(content_item, ("Segoe UI", 10))
+                    group.append(content_item)
+            
+            # Show "..." if there are more lines
+            if len(content_lines) > 8:
+                more_text = self.app.canvas.create_text(
+                    content_x, content_start_y + (8 * line_height), 
+                    text="...", anchor="nw", 
+                    font=("Segoe UI", int(10 * zoom), "italic"),
+                    fill=COLORS['text_secondary'], 
+                    tags=(f"textbox_{textbox_id}", "textbox")
+                )
+                self.store_text_font_size(more_text, ("Segoe UI", 10, "italic"))
+                group.append(more_text)
+
+        self.app.textbox_widgets[textbox_id] = group
+        
+        # Add event bindings
+        for item in group:
+            self.app.canvas.tag_bind(item, "<Double-Button-1>", 
+                                   lambda e, tid=textbox_id: self.app.events.edit_textbox(tid))
+        
+        self.add_textbox_hover_effects(textbox_id, group)
+        logger.info(f"Widget creation complete for textbox {textbox_id}")
+
+    def add_textbox_hover_effects(self, textbox_id, group):
+        """Add hover effects to textbox widgets"""
+        def on_enter(event):
+            if self.app.events.connecting and self.app.events.connection_start == textbox_id:
+                return
+            for item in group:
+                if 'shadow' not in self.app.canvas.gettags(item):
+                    if self.app.canvas.type(item) == 'rectangle':
+                        self.app.canvas.itemconfig(item, outline=COLORS['primary'], width=3)
+        
+        def on_leave(event):
+            if self.app.events.connecting and self.app.events.connection_start == textbox_id:
+                return
+            textbox = self.app.textboxes[textbox_id]
+            textbox_color = CARD_COLORS[textbox.color % len(CARD_COLORS)]
+            for item in group:
+                if 'shadow' not in self.app.canvas.gettags(item):
+                    if self.app.canvas.type(item) == 'rectangle':
+                        self.app.canvas.itemconfig(item, outline=textbox_color, width=2)
+        
+        for item in group:
+            self.app.canvas.tag_bind(item, "<Enter>", on_enter)
+            self.app.canvas.tag_bind(item, "<Leave>", on_leave)
+
     def highlight_person_for_connection(self, person_id):
+        """Highlight a person for connection"""
         group = self.app.person_widgets.get(person_id, [])
         person_color = CARD_COLORS[self.app.people[person_id].color % len(CARD_COLORS)]
         
         for item in group:
             tags = self.app.canvas.gettags(item)
-            if 'shadow' in tags or 'corner' in tags:
+            if 'shadow' in tags:
                 continue
             
             item_type = self.app.canvas.type(item)
@@ -472,13 +695,14 @@ class CanvasHelpers:
                      self.app.canvas.itemconfig(item, fill=COLORS['surface_bright'])
 
     def unhighlight_person_for_connection(self, person_id):
+        """Unhighlight a person for connection"""
         group = self.app.person_widgets.get(person_id, [])
         person = self.app.people[person_id]
         person_color = CARD_COLORS[person.color % len(CARD_COLORS)]
 
         for item in group:
             tags = self.app.canvas.gettags(item)
-            if 'shadow' in tags or 'corner' in tags:
+            if 'shadow' in tags:
                 continue
 
             item_type = self.app.canvas.type(item)

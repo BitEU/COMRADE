@@ -1,6 +1,6 @@
 from datetime import datetime
 from src.constants import COLORS, CARD_COLORS
-from src.dialogs import ConnectionLabelDialog, PersonDialog
+from src.dialogs import ConnectionLabelDialog, PersonDialog, TextboxDialog
 from tkinter import messagebox
 
 # This file will contain event handling logic.
@@ -14,6 +14,7 @@ class EventHandlers:
         self.connection_start = None
         self.temp_line = None
         self.selected_person = None
+        self.selected_textbox = None
         self.selected_connection = None
         self.last_zoom = 1.0
         self.zoom_debounce_timer = None
@@ -83,6 +84,7 @@ class EventHandlers:
         # Always clear selections on a new click
         self.clear_connection_selection()
         self.selected_person = None
+        self.selected_textbox = None
         self.dragging = False
 
         if not items:
@@ -107,7 +109,17 @@ class EventHandlers:
                             except ValueError:
                                 continue
             
-            # If not a connection, check for a person
+            # Check for textbox
+            if any("textbox" in tag for tag in tags):
+                for tag in tags:
+                    if tag.startswith("textbox_"):
+                        textbox_id = int(tag.split("_")[1])
+                        self.selected_textbox = textbox_id
+                        self.drag_data = {"x": canvas_x, "y": canvas_y}
+                        self.dragging = True
+                        return # Exit after handling the click
+            
+            # If not a connection or textbox, check for a person
             if any("person" in tag for tag in tags):
                 for tag in tags:
                     if tag.startswith("person_"):
@@ -118,7 +130,7 @@ class EventHandlers:
                         return # Exit after handling the click
 
     def on_canvas_drag(self, event):
-        if self.dragging and self.selected_person:
+        if self.dragging and (self.selected_person or self.selected_textbox):
             zoom = self.last_zoom
             
             # Convert screen coordinates to canvas coordinates
@@ -133,14 +145,25 @@ class EventHandlers:
             dx_world = dx_canvas / zoom
             dy_world = dy_canvas / zoom
             
-            # Update logical (unscaled) position using world delta
-            self.app.people[self.selected_person].x += dx_world
-            self.app.people[self.selected_person].y += dy_world
+            if self.selected_person:
+                # Update logical (unscaled) position using world delta
+                self.app.people[self.selected_person].x += dx_world
+                self.app.people[self.selected_person].y += dy_world
 
-            # Move existing canvas items directly during drag (much more efficient)
-            person_items = self.app.person_widgets[self.selected_person]
-            for item in person_items:
-                self.app.canvas.move(item, dx_canvas, dy_canvas)
+                # Move existing canvas items directly during drag (much more efficient)
+                person_items = self.app.person_widgets[self.selected_person]
+                for item in person_items:
+                    self.app.canvas.move(item, dx_canvas, dy_canvas)
+            
+            elif self.selected_textbox:
+                # Update logical (unscaled) position using world delta
+                self.app.textboxes[self.selected_textbox].x += dx_world
+                self.app.textboxes[self.selected_textbox].y += dy_world
+
+                # Move existing canvas items directly during drag (much more efficient)
+                textbox_items = self.app.textbox_widgets[self.selected_textbox]
+                for item in textbox_items:
+                    self.app.canvas.move(item, dx_canvas, dy_canvas)
 
             # Update connections immediately (but efficiently)
             self.app.canvas_helpers.update_connections()  # Update connections
@@ -148,13 +171,16 @@ class EventHandlers:
             self.drag_data = {"x": canvas_x, "y": canvas_y}
 
     def on_canvas_release(self, event):
-        if self.dragging and self.selected_person:
+        if self.dragging and (self.selected_person or self.selected_textbox):
             self.dragging = False
             
             # Don't refresh the widget - it's already at the correct position and scale
             # Only refresh if there was a pending color change
             if self._pending_color_refresh:
-                self.app.root.after(50, lambda: self.app.refresh_person_widget(self._pending_color_refresh))
+                if self.selected_person:
+                    self.app.root.after(50, lambda: self.app.refresh_person_widget(self._pending_color_refresh))
+                elif self.selected_textbox:
+                    self.app.root.after(50, lambda: self.app.refresh_textbox_widget(self._pending_color_refresh))
                 self._pending_color_refresh = None
         else:
             self.dragging = False
@@ -206,6 +232,7 @@ class EventHandlers:
                                            canvas_x + tolerance, canvas_y + tolerance)
         
         person_id = None
+        textbox_id = None
         for item in items:
             tags = self.app.canvas.gettags(item)
             if any("person" in tag for tag in tags):
@@ -215,28 +242,41 @@ class EventHandlers:
                         break
                 if person_id is not None:
                     break
+            elif any("textbox" in tag for tag in tags):
+                for tag in tags:
+                    if tag.startswith("textbox_"):
+                        textbox_id = int(tag.split("_")[1])
+                        break
+                if textbox_id is not None:
+                    break
         
-        if person_id is not None:
-            if not self.connecting or (self.connecting and person_id != self.connection_start):
-                if self.current_hover != person_id:
+        card_id = person_id or textbox_id
+        if card_id is not None:
+            if not self.connecting or (self.connecting and card_id != self.connection_start):
+                if self.current_hover != card_id:
                     pass
-                if self.current_hover != person_id:
+                if self.current_hover != card_id:
                     self.app.canvas.configure(cursor="hand2")
-                    self.current_hover = person_id
+                    self.current_hover = card_id
         else:
             if self.current_hover:
                 self.app.canvas.configure(cursor="")
                 self.current_hover = None
         
         if self.connecting and self.temp_line and self.connection_start:
-            p = self.app.people[self.connection_start]
+            # Get starting position based on connection type
+            if self.connection_start in self.app.people:
+                start_obj = self.app.people[self.connection_start]
+            else:
+                start_obj = self.app.textboxes[self.connection_start]
+            
             zoom = self.last_zoom
-            start_x, start_y = p.x * zoom, p.y * zoom
+            start_x, start_y = start_obj.x * zoom, start_obj.y * zoom
             canvas_x = self.app.canvas.canvasx(event.x)
             canvas_y = self.app.canvas.canvasy(event.y)
             self.app.canvas.coords(self.temp_line, start_x, start_y, canvas_x, canvas_y)
             
-            if person_id is not None and person_id != self.connection_start:
+            if card_id is not None and card_id != self.connection_start:
                 self.app.canvas.itemconfig(self.temp_line, fill=COLORS['success'], width=4)
             else:
                 self.app.canvas.itemconfig(self.temp_line, fill=COLORS['accent'], width=3)
@@ -250,26 +290,33 @@ class EventHandlers:
         
         items = self.app.canvas.find_overlapping(canvas_x - tolerance, canvas_y - tolerance, 
                                            canvas_x + tolerance, canvas_y + tolerance)
-        person_id = None
+        card_id = None
         for item in items:
             tags = self.app.canvas.gettags(item)
             if any("person" in tag for tag in tags):
                 for tag in tags:
                     if tag.startswith("person_"):
-                        person_id = int(tag.split("_")[1])
+                        card_id = int(tag.split("_")[1])
                         break
-                if person_id is not None:
+                if card_id is not None:
                     break
-        if person_id is None:
+            elif any("textbox" in tag for tag in tags):
+                for tag in tags:
+                    if tag.startswith("textbox_"):
+                        card_id = int(tag.split("_")[1])
+                        break
+                if card_id is not None:
+                    break
+        if card_id is None:
             self.cancel_connection()
             return
 
         if not self.connecting:
-            self.start_connection(person_id, canvas_x, canvas_y)
-        elif self.connection_start == person_id:
+            self.start_connection(card_id, canvas_x, canvas_y)
+        elif self.connection_start == card_id:
             self.cancel_connection()
         else:
-            self.complete_connection(person_id)
+            self.complete_connection(card_id)
     
     def on_escape_key(self, event):
         """Handle escape key to cancel connections"""
@@ -316,33 +363,49 @@ class EventHandlers:
         self.app.zoom_var.set(new_zoom)
         self.on_zoom(new_zoom)
 
-    def start_connection(self, person_id, x, y):
-        """Start drawing a connection line from a person"""
+    def start_connection(self, card_id, x, y):
+        """Start drawing a connection line from a card (person or textbox)"""
         self.connecting = True
-        self.connection_start = person_id
-        p1 = self.app.people[person_id]
+        self.connection_start = card_id
+        
+        # Get the card object and name
+        if card_id in self.app.people:
+            card_obj = self.app.people[card_id]
+            card_name = card_obj.name
+        else:
+            card_obj = self.app.textboxes[card_id]
+            card_name = card_obj.title
+            
         zoom = self.last_zoom
-        start_x, start_y = p1.x * zoom, p1.y * zoom
+        start_x, start_y = card_obj.x * zoom, card_obj.y * zoom
         self.temp_line = self.app.canvas.create_line(start_x, start_y, x, y, fill=COLORS['accent'], width=3, dash=(4, 4))
-        self.app.update_status(f"🔗 Connecting from {p1.name}... Right-click another person to link, or right-click again to cancel.")
-        self.app.canvas_helpers.highlight_person_for_connection(person_id)
+        self.app.update_status(f"🔗 Connecting from {card_name}... Right-click another card to link, or right-click again to cancel.")
+        self.app.canvas_helpers.highlight_card_for_connection(card_id)
 
-    def complete_connection(self, person_id):
-        """Complete a connection between two people"""
+    def complete_connection(self, card_id):
+        """Complete a connection between two cards (people or textboxes)"""
         if not self.connecting or self.connection_start is None:
             return
             
         id1 = self.connection_start
-        id2 = person_id
+        id2 = card_id
         
         # Avoid self-connection
         if id1 == id2:
             self.cancel_connection()
             return
+        
+        # Get card objects
+        card1 = self.app.people.get(id1) or self.app.textboxes.get(id1)
+        card2 = self.app.people.get(id2) or self.app.textboxes.get(id2)
+        
+        if not card1 or not card2:
+            self.cancel_connection()
+            return
             
         # Check if connection already exists
-        if id2 in self.app.people[id1].connections:
-            messagebox.showinfo("Connection Exists", "These two people are already connected.")
+        if id2 in card1.connections:
+            messagebox.showinfo("Connection Exists", "These two cards are already connected.")
             self.cancel_connection()
             return
             
@@ -352,15 +415,19 @@ class EventHandlers:
         label = dialog.result if dialog.result else ""
         
         # Add connection to data structures
-        self.app.people[id1].connections[id2] = label
-        self.app.people[id2].connections[id1] = label
+        card1.connections[id2] = label
+        card2.connections[id1] = label
         
         # Draw the final connection line
         self.app.draw_connection(id1, id2, label, self.last_zoom)
         
         # Clean up
         self.cancel_connection()
-        self.app.update_status(f"✅ Linked {self.app.people[id1].name} and {self.app.people[id2].name}")
+        
+        # Get card names for status
+        name1 = card1.name if hasattr(card1, 'name') else card1.title
+        name2 = card2.name if hasattr(card2, 'name') else card2.title
+        self.app.update_status(f"✅ Linked {name1} and {name2}")
 
     def cancel_connection(self):
         """Cancel the connection drawing process"""
@@ -368,7 +435,7 @@ class EventHandlers:
             self.app.canvas.delete(self.temp_line)
             self.temp_line = None
         if self.connection_start:
-            self.app.canvas_helpers.unhighlight_person_for_connection(self.connection_start)
+            self.app.canvas_helpers.unhighlight_card_for_connection(self.connection_start)
         self.connecting = False
         self.connection_start = None
         self.app.update_status("Ready")
@@ -402,23 +469,56 @@ class EventHandlers:
                 self.app.refresh_person_widget(person_id)
                 self.app.update_status(f"Updated details for {person.name}")
 
+    def edit_textbox(self, textbox_id):
+        """Handle editing a textbox's details via a dialog."""
+        if textbox_id in self.app.textboxes:
+            textbox = self.app.textboxes[textbox_id]
+            
+            # Use a dialog to get updated information
+            dialog = TextboxDialog(self.app.root, 
+                                  "Edit Textbox Card", 
+                                  title=textbox.title, 
+                                  content=textbox.content)
+            self.app.root.wait_window(dialog.dialog)
+            
+            if dialog.result:
+                # Update textbox data
+                textbox.title = dialog.result['title']
+                textbox.content = dialog.result['content']
+                
+                # Refresh the specific textbox's widget on the canvas
+                self.app.refresh_textbox_widget(textbox_id)
+                self.app.update_status(f"Updated textbox '{textbox.title}'")
+
     def edit_connection_label(self):
         """Edit the label of the selected connection"""
         if not self.selected_connection:
             return
             
         id1, id2 = self.selected_connection
-        current_label = self.app.people[id1].connections.get(id2, "")
+        
+        # Get card objects (could be person or textbox)
+        card1 = self.app.people.get(id1) or self.app.textboxes.get(id1)
+        card2 = self.app.people.get(id2) or self.app.textboxes.get(id2)
+        
+        if not card1 or not card2:
+            return
+            
+        current_label = card1.connections.get(id2, "")
         
         dialog = ConnectionLabelDialog(self.app.root, "Edit Connection Label", initial_value=current_label)
         self.app.root.wait_window(dialog.dialog)
         
         if dialog.result is not None:
             new_label = dialog.result
-            self.app.people[id1].connections[id2] = new_label
-            self.app.people[id2].connections[id1] = new_label
+            card1.connections[id2] = new_label
+            card2.connections[id1] = new_label
             self.app.canvas_helpers.update_connections()
-            self.app.update_status(f"Connection label updated for {self.app.people[id1].name} and {self.app.people[id2].name}")
+            
+            # Get card names for status
+            name1 = card1.name if hasattr(card1, 'name') else card1.title
+            name2 = card2.name if hasattr(card2, 'name') else card2.title
+            self.app.update_status(f"Connection label updated for {name1} and {name2}")
         
         self.clear_connection_selection()
 
@@ -429,21 +529,30 @@ class EventHandlers:
             return
             
         id1, id2 = self.selected_connection
-        p1_name = self.app.people[id1].name
-        p2_name = self.app.people[id2].name
+        
+        # Get card objects (could be person or textbox)
+        card1 = self.app.people.get(id1) or self.app.textboxes.get(id1)
+        card2 = self.app.people.get(id2) or self.app.textboxes.get(id2)
+        
+        if not card1 or not card2:
+            return
+            
+        # Get card names for display
+        name1 = card1.name if hasattr(card1, 'name') else card1.title
+        name2 = card2.name if hasattr(card2, 'name') else card2.title
         
         result = messagebox.askyesno(
             "Confirm Deletion",
-            f"Are you sure you want to delete the connection between {p1_name} and {p2_name}?",
+            f"Are you sure you want to delete the connection between {name1} and {name2}?",
             icon='warning'
         )
         
         if result:
             # Remove from data structures
-            if id2 in self.app.people[id1].connections:
-                del self.app.people[id1].connections[id2]
-            if id1 in self.app.people[id2].connections:
-                del self.app.people[id2].connections[id1]
+            if id2 in card1.connections:
+                del card1.connections[id2]
+            if id1 in card2.connections:
+                del card2.connections[id1]
             
             # Remove from canvas
             if self.selected_connection in self.app.connection_lines:
@@ -456,7 +565,7 @@ class EventHandlers:
                 self.app.canvas.delete(clickable_area_id)
             
             self.selected_connection = None
-            self.app.update_status(f"🗑️ Connection between {p1_name} and {p2_name} deleted")
+            self.app.update_status(f"🗑️ Connection between {name1} and {name2} deleted")
 
     def highlight_connection_selection(self):
         """Highlight the selected connection on the canvas"""

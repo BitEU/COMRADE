@@ -233,6 +233,189 @@ class PersonDialog:
         self.dialog.destroy()
 
 
+class TextboxDialog:
+    """
+    Dialog for adding/editing textbox card information
+    """
+    def __init__(self, parent, title, **kwargs):
+        self.result = None
+        self.dialog = tk.Toplevel(parent)
+        self.dialog.title(f"📝 {title}")
+        self.dialog.geometry("500x650")
+        self.dialog.configure(bg=COLORS['background'])
+        self.dialog.transient(parent)
+        self.dialog.grab_set()
+        self.dialog.resizable(False, False)
+        
+        # Center the dialog
+        self.dialog.update_idletasks()
+        x = (self.dialog.winfo_screenwidth() // 2) - (500 // 2)
+        y = (self.dialog.winfo_screenheight() // 2) - (650 // 2)
+        self.dialog.geometry(f"500x650+{x}+{y}")
+        
+        # Main container
+        main_frame = tk.Frame(self.dialog, bg=COLORS['background'])
+        main_frame.pack(fill=tk.BOTH, expand=True, padx=25, pady=25)
+        
+        # Title
+        title_label = tk.Label(main_frame, 
+                              text=title,
+                              font=("Segoe UI", 18, "bold"),
+                              fg=COLORS['primary'],
+                              bg=COLORS['background'])
+        title_label.pack(pady=(0, 25))
+        
+        # Form container
+        form_frame = tk.Frame(main_frame, bg=COLORS['surface'], relief=tk.FLAT, bd=0)
+        form_frame.pack(fill=tk.BOTH, expand=True, pady=(0, 25))
+        
+        # Add padding inside form
+        form_inner = tk.Frame(form_frame, bg=COLORS['surface'])
+        form_inner.pack(fill=tk.BOTH, expand=True, padx=25, pady=25)
+        
+        # Title field
+        title_label = tk.Label(form_inner,
+                              text="📝 Card Title: *",
+                              font=("Segoe UI", 11, "bold"),
+                              fg=COLORS['text_primary'],
+                              bg=COLORS['surface'],
+                              anchor="w")
+        title_label.grid(row=0, column=0, sticky="w", pady=(0, 4))
+        
+        self.title_entry = tk.Entry(form_inner, 
+                                   font=("Segoe UI", 12),
+                                   bg='white',
+                                   fg=COLORS['text_primary'],
+                                   relief=tk.FLAT,
+                                   bd=8,
+                                   highlightthickness=2,
+                                   highlightcolor=COLORS['primary'],
+                                   highlightbackground=COLORS['border'],
+                                   width=40)
+        self.title_entry.grid(row=1, column=0, sticky="ew", pady=(0, 15))
+        
+        if 'title' in kwargs:
+            self.title_entry.insert(0, kwargs['title'])
+        
+        # Content field
+        content_label = tk.Label(form_inner,
+                                text="📄 Content:",
+                                font=("Segoe UI", 11, "bold"),
+                                fg=COLORS['text_primary'],
+                                bg=COLORS['surface'],
+                                anchor="w")
+        content_label.grid(row=2, column=0, sticky="w", pady=(0, 4))
+        
+        # Text area with scrollbar
+        text_frame = tk.Frame(form_inner, bg=COLORS['surface'])
+        text_frame.grid(row=3, column=0, sticky="ew", pady=(0, 15))
+        
+        self.content_text = tk.Text(text_frame,
+                                   font=("Segoe UI", 11),
+                                   bg='white',
+                                   fg=COLORS['text_primary'],
+                                   relief=tk.FLAT,
+                                   bd=8,
+                                   highlightthickness=2,
+                                   highlightcolor=COLORS['primary'],
+                                   highlightbackground=COLORS['border'],
+                                   width=45,
+                                   height=12,
+                                   wrap=tk.WORD)
+        
+        scrollbar = tk.Scrollbar(text_frame, orient=tk.VERTICAL, command=self.content_text.yview)
+        self.content_text.configure(yscrollcommand=scrollbar.set)
+        
+        self.content_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        
+        if 'content' in kwargs:
+            self.content_text.insert('1.0', kwargs['content'])
+        
+        # Configure grid weights
+        form_inner.columnconfigure(0, weight=1)
+        text_frame.columnconfigure(0, weight=1)
+        
+        # Required field note
+        note_label = tk.Label(form_inner,
+                             text="* Required fields",
+                             font=("Segoe UI", 9),
+                             fg=COLORS['text_secondary'],
+                             bg=COLORS['surface'])
+        note_label.grid(row=4, column=0, sticky="w", pady=(10, 0))
+        
+        # Button frame
+        button_frame = tk.Frame(main_frame, bg=COLORS['background'])
+        button_frame.pack(fill=tk.X, pady=(10, 0))
+        
+        # Modern buttons
+        cancel_btn = tk.Button(button_frame,
+                              text="Cancel",
+                              command=self.cancel,
+                              font=("Segoe UI", 10),
+                              bg=COLORS['text_secondary'],
+                              fg='white',
+                              relief=tk.FLAT,
+                              padx=20,
+                              pady=8,
+                              cursor='hand2')
+        cancel_btn.pack(side=tk.RIGHT, padx=(10, 0))
+        
+        ok_btn = tk.Button(button_frame,
+                          text="Save",
+                          command=self.ok,
+                          font=("Segoe UI", 10, "bold"),
+                          bg=COLORS['primary'],
+                          fg='white',
+                          relief=tk.FLAT,
+                          padx=20,
+                          pady=8,
+                          cursor='hand2')
+        ok_btn.pack(side=tk.RIGHT)
+        
+        # Add hover effects to buttons
+        self._add_button_hover_effects(ok_btn, cancel_btn)
+        
+        # Focus on title entry
+        self.title_entry.focus()
+        
+        # Bind Enter key to OK (only for title field, not text area)
+        self.title_entry.bind('<Return>', lambda e: self.ok())
+        self.dialog.bind('<Escape>', lambda e: self.cancel())
+    
+    def _add_button_hover_effects(self, ok_btn, cancel_btn):
+        """Add hover effects to buttons"""
+        def on_ok_enter(e):
+            ok_btn.configure(bg=COLORS['primary_dark'])
+        def on_ok_leave(e):
+            ok_btn.configure(bg=COLORS['primary'])
+        def on_cancel_enter(e):
+            cancel_btn.configure(bg='#475569')
+        def on_cancel_leave(e):
+            cancel_btn.configure(bg=COLORS['text_secondary'])
+        
+        ok_btn.bind("<Enter>", on_ok_enter)
+        ok_btn.bind("<Leave>", on_ok_leave)
+        cancel_btn.bind("<Enter>", on_cancel_enter)
+        cancel_btn.bind("<Leave>", on_cancel_leave)
+    
+    def ok(self):
+        """Handle OK button click"""
+        # Validate title is not empty
+        if not self.title_entry.get().strip():
+            messagebox.showerror("Error", "Title is required!", parent=self.dialog)
+            return
+            
+        self.result = {
+            'title': self.title_entry.get().strip(),
+            'content': self.content_text.get('1.0', tk.END).strip()
+        }
+        self.dialog.destroy()
+        
+    def cancel(self):
+        """Handle Cancel button click"""
+        self.dialog.destroy()
+
 class ConnectionLabelDialog:
     """
     Dialog for adding/editing a connection label

@@ -24,8 +24,8 @@ except ImportError:
 
 # Import from supporting modules
 from src.constants import COLORS, CARD_COLORS
-from src.models import Person
-from src.dialogs import PersonDialog, ConnectionLabelDialog, VersionUpdateDialog, NoUpdateDialog
+from src.models import Person, TextboxCard
+from src.dialogs import PersonDialog, TextboxDialog, ConnectionLabelDialog, VersionUpdateDialog, NoUpdateDialog
 from src.utils import setup_logging, darken_color
 from src.ui_setup import UISetup
 from src.event_handlers import EventHandlers
@@ -48,7 +48,9 @@ class ConnectionApp:
         
         # Data structures
         self.people = {}  # {id: Person}
+        self.textboxes = {}  # {id: TextboxCard}
         self.person_widgets = {}  # {id: canvas_item_id}
+        self.textbox_widgets = {}  # {id: canvas_item_id}
         self.connection_lines = {}  # {(id1, id2): (line_id, label_id)}
         self.original_font_sizes = {}  # {canvas_item_id: original_font_size} for proper text scaling
         self.original_image_sizes = {}  # {canvas_item_id: (original_width, original_height)} for proper image scaling
@@ -110,6 +112,28 @@ class ConnectionApp:
         self.canvas_helpers.update_connections()
         logger.info(f"Widget for person {person_id} refreshed")
 
+    def refresh_textbox_widget(self, textbox_id):
+        """Refresh a textbox's widget on the canvas"""
+        # Don't refresh during zoom operations to avoid double-scaling
+        if hasattr(self.events, '_zooming') and self.events._zooming:
+            return
+            
+        logger.info(f"Refreshing widget for textbox {textbox_id}")
+        
+        # Remove the old widget from the canvas
+        if textbox_id in self.textbox_widgets:
+            for item in self.textbox_widgets[textbox_id]:
+                self.canvas.delete(item)
+            del self.textbox_widgets[textbox_id]
+        
+        # Re-create the widget with the current zoom level
+        zoom = self.events.last_zoom
+        self.canvas_helpers.create_textbox_widget(textbox_id, zoom)
+        
+        # Redraw connections to ensure they are correctly positioned
+        self.canvas_helpers.update_connections()
+        logger.info(f"Widget for textbox {textbox_id} refreshed")
+
     def add_person(self):
         logger.info("Add person button clicked")
         dialog = PersonDialog(self.root, "Add Person")
@@ -143,6 +167,37 @@ class ConnectionApp:
         else:
             logger.info("Dialog was cancelled")
             
+    def add_textbox(self):
+        logger.info("Add textbox button clicked")
+        dialog = TextboxDialog(self.root, "Add Textbox Card")
+        self.root.wait_window(dialog.dialog)  # Wait for dialog to close
+        logger.info(f"Dialog result: {dialog.result}")
+        if dialog.result:
+            textbox = TextboxCard(**dialog.result)
+            textbox_id = self.next_id
+            self.next_id += 1
+            logger.info(f"Creating textbox with ID {textbox_id}: {textbox.title}")
+            
+            # Position using box layout (offset from people)
+            cols = 2
+            col_width = 400
+            row_height = 200
+            start_x = 200
+            start_y = 120
+            total_cards = len(self.people) + len(self.textboxes)
+            row = total_cards // cols
+            col = total_cards % cols
+            textbox.x = start_x + col * col_width
+            textbox.y = start_y + row * row_height
+            logger.info(f"Positioned textbox at ({textbox.x}, {textbox.y})")
+            
+            self.textboxes[textbox_id] = textbox
+            logger.info(f"Added textbox to data structure. Total textboxes: {len(self.textboxes)}")
+            self.canvas_helpers.create_textbox_widget(textbox_id)
+            logger.info(f"Created widget for textbox {textbox_id}")
+        else:
+            logger.info("Dialog was cancelled")
+
     def delete_person(self):
         """Delete the currently selected person"""
         if self.events.selected_person is None:

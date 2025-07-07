@@ -19,7 +19,7 @@ try:
 except ImportError:
     PIL_AVAILABLE = False
 
-from src.models import Person
+from src.models import Person, TextboxCard
 from src.dialogs import VersionUpdateDialog, NoUpdateDialog
 from src.constants import COLORS, CARD_COLORS, COMRADE_VERSION
 
@@ -46,7 +46,7 @@ class DataManagement:
                 
                 with open(csv_path, 'w', newline='', encoding='utf-8') as f:
                     writer = csv.writer(f)
-                    writer.writerow(['ID', 'Name', 'DOB', 'Alias', 'Address', 'Phone', 'X', 'Y', 'Color', 'Files'])
+                    writer.writerow(['ID', 'Name', 'DOB', 'Alias', 'Address', 'Phone', 'X', 'Y', 'Color', 'Files', 'Type'])
                     
                     # Save people
                     for person_id, person in self.app.people.items():
@@ -75,7 +75,15 @@ class DataManagement:
                         writer.writerow([
                             person_id, person.name, person.dob, person.alias, 
                             person.address, person.phone, person.x, person.y, 
-                            person.color, files_json
+                            person.color, files_json, 'person'
+                        ])
+                    
+                    # Save textboxes
+                    for textbox_id, textbox in self.app.textboxes.items():
+                        writer.writerow([
+                            textbox_id, textbox.title, textbox.content, '', 
+                            '', '', textbox.x, textbox.y, 
+                            textbox.color, '', 'textbox'
                         ])
                     
                     writer.writerow(['CONNECTIONS'])
@@ -83,8 +91,17 @@ class DataManagement:
                     
                     # Save connections
                     saved = set()
+                    # Save connections from people
                     for id1, person in self.app.people.items():
                         for id2, label in person.connections.items():
+                            key = (min(id1, id2), max(id1, id2))
+                            if key not in saved:
+                                writer.writerow([id1, id2, label])
+                                saved.add(key)
+                    
+                    # Save connections from textboxes
+                    for id1, textbox in self.app.textboxes.items():
+                        for id2, label in textbox.connections.items():
                             key = (min(id1, id2), max(id1, id2))
                             if key not in saved:
                                 writer.writerow([id1, id2, label])
@@ -174,55 +191,88 @@ class DataManagement:
                         if connections_section:
                             if len(row) >= 3:
                                 id1, id2, label = int(row[0]), int(row[1]), row[2]                            
-                                if id1 in self.app.people and id2 in self.app.people:
-                                    self.app.people[id1].connections[id2] = label
-                                    self.app.people[id2].connections[id1] = label
+                                # Check if IDs exist in either people or textboxes
+                                card1 = self.app.people.get(id1) or self.app.textboxes.get(id1)
+                                card2 = self.app.people.get(id2) or self.app.textboxes.get(id2)
+                                
+                                if card1 and card2:
+                                    card1.connections[id2] = label
+                                    card2.connections[id1] = label
                                 else:
-                                    logger.warning(f"Connection references missing person: {id1} or {id2}")
+                                    logger.warning(f"Connection references missing card: {id1} or {id2}")
                         else:
                             if len(row) >= 8:
-                                person_id = int(row[0])
-                                person = Person(row[1], row[2], row[3], row[4], row[5])
-                                person.x = float(row[6])
-                                person.y = float(row[7])
+                                card_id = int(row[0])
                                 
-                                # Handle color field
-                                if len(row) >= 9:
-                                    person.color = int(row[8])
+                                # Check if this is a textbox (new format with Type column)
+                                is_textbox = False
+                                if len(row) >= 11 and row[10] == 'textbox':
+                                    is_textbox = True
+                                elif len(row) >= 3 and not row[2]:  # Empty DOB might indicate textbox in old format
+                                    # Additional heuristic: if name is actually content (longer than typical name)
+                                    if len(row[1]) > 50:
+                                        is_textbox = True
+                                
+                                if is_textbox:
+                                    # This is a textbox card
+                                    textbox = TextboxCard(row[1], row[2] if len(row) > 2 else '')
+                                    textbox.x = float(row[6])
+                                    textbox.y = float(row[7])
+                                    
+                                    # Handle color field
+                                    if len(row) >= 9:
+                                        textbox.color = int(row[8])
+                                    else:
+                                        textbox.color = 0
+                                    
+                                    self.app.textboxes[card_id] = textbox
+                                    self.app.next_id = max(self.app.next_id, card_id + 1)
                                 else:
-                                    person.color = 0
-                                
-                                # Handle files field (new format)
-                                if len(row) >= 10 and row[9]:
-                                    try:
-                                        zip_file_paths = json.loads(row[9])
+                                    # This is a person card
+                                    person = Person(row[1], row[2], row[3], row[4], row[5])
+                                    person.x = float(row[6])
+                                    person.y = float(row[7])
+                                    
+                                    # Handle color field
+                                    if len(row) >= 9:
+                                        person.color = int(row[8])
+                                    else:
+                                        person.color = 0
+                                    
+                                    # Handle files field (new format)
+                                    if len(row) >= 10 and row[9]:
+                                        try:
+                                            zip_file_paths = json.loads(row[9])
+                                            person.files = []
+                                            
+                                            # Copy files from temp to permanent location and update paths
+                                            for zip_path in zip_file_paths:
+                                                temp_file_path = os.path.join(temp_dir, zip_path)
+                                                if os.path.exists(temp_file_path):
+                                                    # Create permanent file path
+                                                    filename_only = os.path.basename(zip_path)
+                                                    permanent_path = os.path.join(files_dir, filename_only)
+                                                    
+                                                    # Copy file to permanent location
+                                                    shutil.copy2(temp_file_path, permanent_path)
+                                                    person.files.append(permanent_path)
+                                                else:
+                                                    logger.warning(f"Attached file not found in ZIP: {zip_path}")
+                                        except json.JSONDecodeError:
+                                            logger.warning(f"Invalid files data for person {card_id}")
+                                            person.files = []
+                                    else:
                                         person.files = []
-                                        
-                                        # Copy files from temp to permanent location and update paths
-                                        for zip_path in zip_file_paths:
-                                            temp_file_path = os.path.join(temp_dir, zip_path)
-                                            if os.path.exists(temp_file_path):
-                                                # Create permanent file path
-                                                filename_only = os.path.basename(zip_path)
-                                                permanent_path = os.path.join(files_dir, filename_only)
-                                                
-                                                # Copy file to permanent location
-                                                shutil.copy2(temp_file_path, permanent_path)
-                                                person.files.append(permanent_path)
-                                            else:
-                                                logger.warning(f"Attached file not found in ZIP: {zip_path}")
-                                    except json.JSONDecodeError:
-                                        logger.warning(f"Invalid files data for person {person_id}")
-                                        person.files = []
-                                else:
-                                    person.files = []
-                                
-                                self.app.people[person_id] = person
-                                self.app.next_id = max(self.app.next_id, person_id + 1)
+                                    
+                                    self.app.people[card_id] = person
+                                    self.app.next_id = max(self.app.next_id, card_id + 1)
                 
                 # Create widgets at base zoom (1.0)
                 for person_id in self.app.people:
                     self.app.canvas_helpers.create_person_widget(person_id, zoom=1.0)
+                
+                for textbox_id in self.app.textboxes:
+                    self.app.canvas_helpers.create_textbox_widget(textbox_id, zoom=1.0)
                 
                 # Draw connections for the base zoom
                 self.app.canvas_helpers.update_connections()
@@ -233,7 +283,7 @@ class DataManagement:
                 
                 # Count extracted files
                 total_files = sum(len(person.files) for person in self.app.people.values())
-                messagebox.showinfo("Success", f"Data loaded successfully!\n\nLoaded:\n• {len(self.app.people)} people\n• {total_files} attached files\n\nFiles extracted to: {files_dir}")
+                messagebox.showinfo("Success", f"Data loaded successfully!\n\nLoaded:\n• {len(self.app.people)} people\n• {len(self.app.textboxes)} textbox cards\n• {total_files} attached files\n\nFiles extracted to: {files_dir}")
     
     def _load_legacy_csv(self, csv_filename):
         """Load data from legacy CSV format (backward compatibility)"""
@@ -287,7 +337,8 @@ class DataManagement:
         
         This function exports the complete network visualization including:
         - All person cards with their information
-        - Connection lines and labels
+        - All textbox cards with their content
+        - Connection lines and labels between all card types
         - Attached images for people (if any)
         - High DPI quality for crisp output
         """
@@ -295,8 +346,8 @@ class DataManagement:
             messagebox.showerror("Error", "PIL (Pillow) library is not installed.\n\nTo use PNG export, please install it with:\npip install Pillow")
             return
             
-        if not self.app.people:
-            messagebox.showwarning("Warning", "No people to export. Please add some people first.")
+        if not self.app.people and not self.app.textboxes:
+            messagebox.showwarning("Warning", "No people or textboxes to export. Please add some content first.")
             return
             
         filename = filedialog.asksaveasfilename(
@@ -337,15 +388,21 @@ class DataManagement:
             # Store connection data to draw labels later
             connection_labels_to_draw = []
 
-            # Draw connections first (so they appear behind people)
-            for (id1, id2), label in [(ids, self.app.people[ids[0]].connections.get(ids[1], "")) 
-                                    for ids in self.app.connection_lines.keys()]:
-                if id1 in self.app.people and id2 in self.app.people:
-
-                    p1, p2 = self.app.people[id1], self.app.people[id2]
-                    x1, y1 = int(p1.x * zoom), int(p1.y * zoom)
-                    x2, y2 = int(p2.x * zoom), int(p2.y * zoom)
-                      # Draw connection line with DPI scaling
+            # Draw connections first (so they appear behind cards)
+            # Handle all types of connections: person-person, person-textbox, textbox-textbox
+            for (id1, id2) in self.app.connection_lines.keys():
+                # Get the connection objects (could be person or textbox)
+                card1 = self.app.people.get(id1) or self.app.textboxes.get(id1)
+                card2 = self.app.people.get(id2) or self.app.textboxes.get(id2)
+                
+                if card1 and card2:
+                    # Get the connection label from either card
+                    label = card1.connections.get(id2, "") or card2.connections.get(id1, "")
+                    
+                    x1, y1 = int(card1.x * zoom), int(card1.y * zoom)
+                    x2, y2 = int(card2.x * zoom), int(card2.y * zoom)
+                    
+                    # Draw connection line with DPI scaling
                     line_width = max(1, int(2 * dpi_scale))
                     draw.line([(x1, y1), (x2, y2)], fill=COLORS['primary'], width=line_width)
                     
@@ -531,6 +588,116 @@ class DataManagement:
                     except Exception as e:
                         logger.error(f"Failed to include image {image_file} in PNG export: {e}")
 
+            # Draw textbox cards
+            for textbox_id, textbox in self.app.textboxes.items():
+                x = int(textbox.x * zoom)
+                y = int(textbox.y * zoom)
+
+                # Try to load fonts for textbox with DPI scaling
+                title_font_size = int(12 * dpi_scale)
+                content_font_size = int(10 * dpi_scale)
+                try:
+                    title_font = ImageFont.truetype("arial.ttf", title_font_size)
+                    content_font = ImageFont.truetype("arial.ttf", content_font_size)
+                except:
+                    try:
+                        title_font = ImageFont.load_default()
+                        content_font = ImageFont.load_default()
+                    except:
+                        title_font = None
+                        content_font = None
+
+                # Calculate textbox dimensions
+                title_width = len(textbox.title) * 10 if textbox.title else 100
+                content_lines = textbox.content.split('\n') if textbox.content else []
+                content_width = max([len(line) for line in content_lines] + [0]) * 8
+                
+                base_width = max(title_width, content_width, 250)
+                base_height = max(120, 50 + len(content_lines) * 20)
+                
+                card_width = int(base_width * zoom)
+                card_height = int(base_height * zoom)
+                
+                half_width = card_width // 2
+                half_height = card_height // 2
+
+                # Draw textbox shadow with DPI scaling
+                shadow_offset = int(3 * dpi_scale)
+                for i in range(3, 0, -1):
+                    shadow_color = '#e0e0e0' if i == 3 else ('#d0d0d0' if i == 2 else '#c0c0c0')
+                    offset = int(i * dpi_scale)
+                    draw.rectangle([
+                        x - half_width + offset, y - half_height + offset,
+                        x + half_width + offset, y + half_height + offset
+                    ], fill=shadow_color)
+
+                # Get textbox's color for consistency with canvas display
+                textbox_color = CARD_COLORS[textbox.color % len(CARD_COLORS)]
+                
+                # Draw main textbox card with DPI scaling
+                card_border_width = max(1, int(2 * dpi_scale))
+                draw.rectangle([
+                    x - half_width, y - half_height,
+                    x + half_width, y + half_height
+                ], fill=COLORS['surface'], outline=textbox_color, width=card_border_width)
+                
+                # Draw header
+                header_height = int(35 * zoom)
+                draw.rectangle([
+                    x - half_width, y - half_height,
+                    x + half_width, y - half_height + header_height
+                ], fill=textbox_color)
+
+                # Draw title in header
+                title_x = x - half_width + int(15 * zoom)
+                title_y = y - half_height + int(17 * zoom)
+                
+                # Draw square icon (similar to person's circular avatar)
+                icon_size = int(16 * zoom)
+                square_border_width = max(1, int(2 * dpi_scale))
+                
+                draw.rectangle([
+                    title_x - icon_size//2, title_y - icon_size//2,
+                    title_x + icon_size//2, title_y + icon_size//2
+                ], fill='white', outline=textbox_color, width=square_border_width)
+                
+                # Draw title text
+                text_x = title_x + icon_size//2 + int(5 * zoom)
+                draw.text((text_x, title_y - int(6 * zoom)), 
+                        textbox.title or "Untitled", fill='white', font=title_font or None)
+
+                # Draw content
+                if textbox.content:
+                    content_start_y = y - half_height + header_height + int(15 * zoom)
+                    content_x = x - half_width + int(15 * zoom)
+                    
+                    # Split content into lines and display (limit to 8 lines for export)
+                    display_lines = content_lines[:8]
+                    line_height = int(18 * zoom)
+                    
+                    for i, line in enumerate(display_lines):
+                        if line.strip():  # Only show non-empty lines
+                            line_y = content_start_y + (i * line_height)
+                            # Truncate long lines for display
+                            display_line = line[:50] + "..." if len(line) > 50 else line
+                            
+                            if content_font:
+                                draw.text((content_x, line_y), display_line, 
+                                        fill=COLORS['text_primary'], font=content_font)
+                            else:
+                                draw.text((content_x, line_y), display_line, 
+                                        fill=COLORS['text_primary'])
+                    
+                    # Show "..." if there are more lines
+                    if len(content_lines) > 8:
+                        more_y = content_start_y + (8 * line_height)
+                        if content_font:
+                            draw.text((content_x, more_y), "...", 
+                                    fill=COLORS['text_secondary'], font=content_font)
+                        else:
+                            draw.text((content_x, more_y), "...", 
+                                    fill=COLORS['text_secondary'])
+
             # Draw connection labels on top of cards
             for conn in connection_labels_to_draw:
                 mid_x = (conn['x1'] + conn['x2']) // 2
@@ -579,17 +746,31 @@ class DataManagement:
             messagebox.showerror("Error", f"Failed to export PNG:\n{str(e)}")
 
     def clear_all(self):
-        # Show confirmation dialog
-        if not self.app.people:
-            messagebox.showinfo("Nothing to Clear", "There are no people or connections to clear.")
+        # Check if there's any data to clear
+        total_people = len(self.app.people)
+        total_textboxes = len(self.app.textboxes)
+        total_connections = sum(len(person.connections) for person in self.app.people.values()) // 2
+        total_textbox_connections = sum(len(textbox.connections) for textbox in self.app.textboxes.values()) // 2
+        
+        if not total_people and not total_textboxes:
+            messagebox.showinfo("Nothing to Clear", "There are no people, textboxes, or connections to clear.")
             return
+            
+        # Build confirmation message
+        items_to_delete = []
+        if total_people > 0:
+            items_to_delete.append(f"• {total_people} people")
+        if total_textboxes > 0:
+            items_to_delete.append(f"• {total_textboxes} textbox cards")
+        if total_connections > 0 or total_textbox_connections > 0:
+            total_all_connections = total_connections + total_textbox_connections
+            items_to_delete.append(f"• {total_all_connections} connections")
             
         result = messagebox.askyesno(
             "Confirm Clear All", 
             f"Are you sure you want to clear all data?\n\n"
             f"This will permanently delete:\n"
-            f"• {len(self.app.people)} people\n"
-            f"• {sum(len(person.connections) for person in self.app.people.values()) // 2} connections\n\n"
+            f"{chr(10).join(items_to_delete)}\n\n"
             f"This action cannot be undone!",
             icon='warning'
         )
@@ -601,6 +782,8 @@ class DataManagement:
         self.app.canvas.delete("all")
         self.app.people.clear()
         self.app.person_widgets.clear()
+        self.app.textboxes.clear()
+        self.app.textbox_widgets.clear()
         self.app.connection_lines.clear()
         self.app.original_font_sizes.clear()
         self.app.original_image_sizes.clear()
@@ -608,6 +791,7 @@ class DataManagement:
         self.app.scaled_image_cache.clear()
         self.app.base_image_cache.clear()
         self.app.selected_person = None
+        self.app.selected_textbox = None
         self.app.selected_connection = None
         self.app.next_id = 1
         

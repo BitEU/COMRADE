@@ -69,3 +69,60 @@ class Person:
         person.connections = data.get('connections', {})
         person.files = data.get('files', [])
         return person
+
+class TextboxCard:
+    """
+    Represents a textbox card with title and content
+    """
+    def __init__(self, title, content="", color=0):
+        self.title = title
+        self.content = content
+        self.x = 0
+        self.y = 0
+        self.color = color  # Index into CARD_COLORS array
+        self.connections = {}  # {card_id: label} - can connect to both people and textboxes
+        
+    def __repr__(self):
+        return f"TextboxCard(title='{self.title}', connections={len(self.connections)})"
+    
+    def add_connection(self, card_id, label):
+        """Add a connection to another card"""
+        self.connections[card_id] = label
+        
+    def remove_connection(self, card_id):
+        """Remove a connection to another card"""
+        if card_id in self.connections:
+            del self.connections[card_id]
+    
+    def has_connection(self, card_id):
+        """Check if connected to another card"""
+        return card_id in self.connections
+    
+    def get_connection_label(self, card_id):
+        """Get the label for a connection"""
+        return self.connections.get(card_id, "")
+    
+    def to_dict(self):
+        """Convert to dictionary for serialization"""
+        return {
+            'title': self.title,
+            'content': self.content,
+            'x': self.x,
+            'y': self.y,
+            'color': self.color,
+            'connections': self.connections,
+            'type': 'textbox'  # Add type identifier for serialization
+        }
+    
+    @classmethod
+    def from_dict(cls, data):
+        """Create TextboxCard from dictionary"""
+        textbox = cls(
+            title=data.get('title', ''),
+            content=data.get('content', ''),
+            color=data.get('color', 0)
+        )
+        textbox.x = data.get('x', 0)
+        textbox.y = data.get('y', 0)
+        textbox.connections = data.get('connections', {})
+        return textbox
