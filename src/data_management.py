@@ -149,8 +149,8 @@ class DataManagement:
         # Reset zoom to default before loading to prevent positioning issues
         if hasattr(self.app, 'zoom_var') and self.app.zoom_var.get() != 1.0:
             self.app.zoom_var.set(1.0)
-            # This will trigger the self.app.events.on_zoom callback,
-            # which handles the actual scaling and canvas update.
+            # Actually trigger the zoom event handler to apply the zoom
+            self.app.events.on_zoom(1.0)
             self.app.update_status("Zoom reset for loading", duration=2000)
 
         filename = filedialog.askopenfilename(
@@ -389,6 +389,16 @@ class DataManagement:
         if not self.app.people and not self.app.textboxes and not self.app.legends:
             messagebox.showwarning("Warning", "No people, textboxes, or legends to export. Please add some content first.")
             return
+        
+        # Store current zoom level to restore later
+        original_zoom = self.app.zoom_var.get() if hasattr(self.app, 'zoom_var') else 1.0
+        
+        # Reset zoom to zoomed out view before exporting to capture more of the network
+        if hasattr(self.app, 'zoom_var') and self.app.zoom_var.get() != 0.5:
+            self.app.zoom_var.set(0.5)
+            # Actually trigger the zoom event handler to apply the zoom
+            self.app.events.on_zoom(0.5)
+            self.app.update_status("Zoom reset for export", duration=2000)
             
         filename = filedialog.asksaveasfilename(
             defaultextension=".png",
@@ -397,6 +407,11 @@ class DataManagement:
         )
         
         if not filename:
+            # Restore original zoom level if user cancels
+            if hasattr(self.app, 'zoom_var'):
+                self.app.zoom_var.set(original_zoom)
+                # Actually trigger the zoom event handler to apply the zoom
+                self.app.events.on_zoom(original_zoom)
             return
             
         try:            # High DPI settings for crisp output
@@ -944,6 +959,12 @@ class DataManagement:
             
         except Exception as e:
             messagebox.showerror("Error", f"Failed to export PNG:\n{str(e)}")
+        finally:
+            # Restore original zoom level
+            if hasattr(self.app, 'zoom_var'):
+                self.app.zoom_var.set(original_zoom)
+                # Actually trigger the zoom event handler to apply the zoom
+                self.app.events.on_zoom(original_zoom)
 
     def clear_all(self):
         # Check if there's any data to clear

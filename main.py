@@ -43,7 +43,7 @@ class ConnectionApp:
         logger.info("Initializing ConnectionApp")
         self.root = root
         self.root.title("COMRADE")
-        self.root.geometry("1400x900")
+        self.root.geometry("1500x900")
         self.root.configure(bg=COLORS['background'])
         
         # Data structures
