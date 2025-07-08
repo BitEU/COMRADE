@@ -349,14 +349,16 @@ class EventHandlers:
             self.app.update_status("Connection cancelled with Escape key")
     
     def on_delete_key(self, event):
-        """Handle delete key to remove selected connection or person"""
+        """Handle delete key to remove selected connection, person, or textbox"""
         if self.selected_connection:
             self.delete_connection()
         elif self.selected_person:
             self.app.delete_person()
+        elif self.selected_textbox:
+            self.app.delete_textbox()
     
     def on_color_cycle_key(self, event):
-        """Handle 'c' key to cycle colors of selected person"""
+        """Handle 'c' key to cycle colors of selected person or textbox"""
         if self.selected_person:
             person = self.app.people[self.selected_person]
             person.color = (person.color + 1) % len(CARD_COLORS)
@@ -367,6 +369,16 @@ class EventHandlers:
             else:
                 self.app.update_status(f"Color will be updated for {person.name} after drag")
                 self._pending_color_refresh = self.selected_person
+        elif self.selected_textbox:
+            textbox = self.app.textboxes[self.selected_textbox]
+            textbox.color = (textbox.color + 1) % len(CARD_COLORS)
+            
+            if not self.dragging:
+                self.app.refresh_textbox_widget(self.selected_textbox)
+                self.app.update_status(f"Changed textbox '{textbox.title}' color")
+            else:
+                self.app.update_status(f"Color will be updated for textbox '{textbox.title}' after drag")
+                self._pending_color_refresh = self.selected_textbox
 
     def on_middle_button_press(self, event):
         self.app.canvas.scan_mark(event.x, event.y)
