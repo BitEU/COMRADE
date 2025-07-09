@@ -1,1 +1,2 @@
 python -m PyInstaller --onefile --windowed --icon=assets/group.ico --hidden-import="PIL" --hidden-import="PIL.Image" --hidden-import="PIL.ImageDraw" --hidden-import="PIL.ImageFont" --hidden-import="requests" --hidden-import="src.models" --hidden-import="src.dialogs" --hidden-import="src.constants" --hidden-import="src.canvas_helpers" --hidden-import="src.data_management" --hidden-import="src.event_handlers" --hidden-import="src.ui_setup" --hidden-import="src.utils" main.py
+python rename_output.py
