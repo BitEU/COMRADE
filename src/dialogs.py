@@ -904,7 +904,7 @@ class LegendDialog:
                                    relief=tk.FLAT,
                                    bd=0)
         self.title_entry.pack(fill=tk.X, padx=2, pady=2)
-        self.title_entry.insert(0, kwargs.get('title', 'Legend'))
+        self.title_entry.insert(0, kwargs.get('legend_title', 'Legend'))
         
         # Color entries section
         entries_container = tk.Frame(inner_frame, bg=COLORS['surface'])

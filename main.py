@@ -202,16 +202,24 @@ class ConnectionApp:
         else:
             logger.info("Dialog was cancelled")
 
-    def add_legend(self):
-        logger.info("Add legend button clicked")
-        dialog = LegendDialog(self.root, "Add Legend Card")
-        self.root.wait_window(dialog.dialog)  # Wait for dialog to close
-        logger.info(f"Dialog result: {dialog.result}")
-        if dialog.result:
-            legend = LegendCard(**dialog.result)
+    def edit_legend(self):
+        logger.info("Edit legend button clicked")
+        
+        # Find existing legend or create one if none exists
+        legend_id = None
+        legend = None
+        
+        if self.legends:
+            # Use the first (and should be only) legend
+            legend_id = list(self.legends.keys())[0]
+            legend = self.legends[legend_id]
+            logger.info(f"Found existing legend with ID {legend_id}: {legend.title}")
+        else:
+            # Create a new legend since none exists
+            legend = LegendCard(title="Legend", color_entries={})
             legend_id = self.next_id
             self.next_id += 1
-            logger.info(f"Creating legend with ID {legend_id}: {legend.title}")
+            logger.info(f"Creating new legend with ID {legend_id}")
             
             # Position using box layout (offset from people and textboxes)
             cols = 2
@@ -227,9 +235,23 @@ class ConnectionApp:
             logger.info(f"Positioned legend at ({legend.x}, {legend.y})")
             
             self.legends[legend_id] = legend
-            logger.info(f"Added legend to data structure. Total legends: {len(self.legends)}")
             self.canvas_helpers.create_legend_widget(legend_id)
-            logger.info(f"Created widget for legend {legend_id}")
+        
+        # Open dialog to edit the legend
+        dialog = LegendDialog(self.root, "Edit Legend Card", 
+                             legend_title=legend.title, 
+                             color_entries=legend.color_entries)
+        self.root.wait_window(dialog.dialog)  # Wait for dialog to close
+        logger.info(f"Dialog result: {dialog.result}")
+        
+        if dialog.result:
+            # Update the existing legend
+            legend.title = dialog.result['title']
+            legend.color_entries = dialog.result['color_entries']
+            
+            # Refresh the legend widget
+            self.refresh_legend_widget(legend_id)
+            logger.info(f"Updated legend '{legend.title}'")
         else:
             logger.info("Dialog was cancelled")
 
@@ -318,6 +340,157 @@ class ConnectionApp:
         
         # Update canvas
         self.canvas.update()
+
+    def delete_textbox(self):
+        """Delete the currently selected textbox"""
+        if self.events.selected_textbox is None:
+            messagebox.showwarning("No Selection", "Please select a textbox to delete by clicking on it first.")
+            return
+            
+        textbox_id = self.events.selected_textbox
+        textbox = self.textboxes[textbox_id]
+        
+        # Confirm deletion
+        result = messagebox.askyesno(
+            "Confirm Deletion", 
+            f"Are you sure you want to delete textbox '{textbox.title}'?\n\nThis will also remove all its connections.",
+            icon='warning'
+        )
+        
+        if not result:
+            return
+            
+        logger.info(f"Deleting textbox {textbox_id}: {textbox.title}")
+        
+        # Remove all connections involving this textbox
+        connections_to_remove = []
+        for other_id in list(textbox.connections.keys()):
+            # Check if connected to person, textbox, or legend
+            other_card = self.people.get(other_id) or self.textboxes.get(other_id) or self.legends.get(other_id)
+            if other_card:
+                # Remove the connection from the other card's connections
+                if textbox_id in other_card.connections:
+                    del other_card.connections[textbox_id]
+                
+                # Track connection lines to remove
+                connection_key = (min(textbox_id, other_id), max(textbox_id, other_id))
+                connections_to_remove.append(connection_key)
+        
+        # Remove connection lines from canvas
+        for connection_key in connections_to_remove:
+            if connection_key in self.connection_lines:
+                elements = self.connection_lines[connection_key]
+                for element in elements:
+                    self.canvas.delete(element)
+                    # Clean up font size tracking for text items
+                    if element in self.original_font_sizes:
+                        del self.original_font_sizes[element]
+                del self.connection_lines[connection_key]
+        
+        # Remove textbox widget from canvas
+        if textbox_id in self.textbox_widgets:
+            widget_items = self.textbox_widgets[textbox_id]
+            for item in widget_items:
+                self.canvas.delete(item)
+                # Clean up tracking dictionaries
+                if item in self.original_font_sizes:
+                    del self.original_font_sizes[item]
+                if item in self.original_image_sizes:
+                    del self.original_image_sizes[item]
+            del self.textbox_widgets[textbox_id]
+        
+        # Remove from textboxes dictionary
+        del self.textboxes[textbox_id]
+        
+        # Clear selection
+        self.events.selected_textbox = None
+        
+        logger.info(f"Successfully deleted textbox {textbox_id}")
+        self.update_status(f"🗑️ Deleted textbox '{textbox.title}' and its connections")
+        
+        # Update canvas
+        self.canvas.update()
+
+    def delete_legend(self):
+        """Delete the currently selected legend"""
+        if self.events.selected_legend is None:
+            messagebox.showwarning("No Selection", "Please select a legend to delete by clicking on it first.")
+            return
+            
+        legend_id = self.events.selected_legend
+        legend = self.legends[legend_id]
+        
+        # Confirm deletion
+        result = messagebox.askyesno(
+            "Confirm Deletion", 
+            f"Are you sure you want to delete legend '{legend.title}'?\n\nThis will also remove all its connections.",
+            icon='warning'
+        )
+        
+        if not result:
+            return
+            
+        logger.info(f"Deleting legend {legend_id}: {legend.title}")
+        
+        # Remove all connections involving this legend
+        connections_to_remove = []
+        for other_id in list(legend.connections.keys()):
+            # Check if connected to person, textbox, or legend
+            other_card = self.people.get(other_id) or self.textboxes.get(other_id) or self.legends.get(other_id)
+            if other_card:
+                # Remove the connection from the other card's connections
+                if legend_id in other_card.connections:
+                    del other_card.connections[legend_id]
+                
+                # Track connection lines to remove
+                connection_key = (min(legend_id, other_id), max(legend_id, other_id))
+                connections_to_remove.append(connection_key)
+        
+        # Remove connection lines from canvas
+        for connection_key in connections_to_remove:
+            if connection_key in self.connection_lines:
+                elements = self.connection_lines[connection_key]
+                for element in elements:
+                    self.canvas.delete(element)
+                    # Clean up font size tracking for text items
+                    if element in self.original_font_sizes:
+                        del self.original_font_sizes[element]
+                del self.connection_lines[connection_key]
+        
+        # Remove legend widget from canvas
+        if legend_id in self.legend_widgets:
+            widget_items = self.legend_widgets[legend_id]
+            for item in widget_items:
+                self.canvas.delete(item)
+                # Clean up tracking dictionaries
+                if item in self.original_font_sizes:
+                    del self.original_font_sizes[item]
+                if item in self.original_image_sizes:
+                    del self.original_image_sizes[item]
+            del self.legend_widgets[legend_id]
+        
+        # Remove from legends dictionary
+        del self.legends[legend_id]
+        
+        # Clear selection
+        self.events.selected_legend = None
+        
+        logger.info(f"Successfully deleted legend {legend_id}")
+        self.update_status(f"🗑️ Deleted legend '{legend.title}' and its connections")
+        
+        # Update canvas
+        self.canvas.update()
+
+    def delete_selected(self):
+        """Delete the currently selected card (person, textbox, or legend)"""
+        if self.events.selected_person:
+            self.delete_person()
+        elif self.events.selected_textbox:
+            self.delete_textbox()
+        elif self.events.selected_legend:
+            self.delete_legend()
+        else:
+            messagebox.showwarning("No Selection", "Please select a card (person, textbox, or legend) to delete by clicking on it first.")
             
     def clear_all(self):
         """Clear all people, connections, and reset the canvas"""

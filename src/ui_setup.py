@@ -63,8 +63,8 @@ class UISetup:
           # Create modern buttons with icons        
         self.create_modern_button(toolbar, "👤 Add Person", self.app.add_person, COLORS['primary'])
         self.create_modern_button(toolbar, "📝 Add Textbox", self.app.add_textbox, COLORS['secondary'])
-        self.create_modern_button(toolbar, "🗂️ Add Legend", self.app.add_legend, COLORS['secondary'])
-        self.create_modern_button(toolbar, "❌ Delete Person", self.app.delete_person, COLORS['danger'])
+        self.create_modern_button(toolbar, "🗂️ Edit Legend", self.app.edit_legend, COLORS['secondary'])
+        self.create_modern_button(toolbar, "❌ Delete Selected", self.app.delete_selected, COLORS['danger'])
         self.create_modern_button(toolbar, "💾 Save Project", self.app.save_data, COLORS['accent'])
         self.create_modern_button(toolbar, "📁 Load Project", self.app.load_data, COLORS['accent'])
         self.create_modern_button(toolbar, "🖼️ Export PNG", self.app.export_to_png, COLORS['secondary'])

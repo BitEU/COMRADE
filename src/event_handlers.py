@@ -349,13 +349,15 @@ class EventHandlers:
             self.app.update_status("Connection cancelled with Escape key")
     
     def on_delete_key(self, event):
-        """Handle delete key to remove selected connection, person, or textbox"""
+        """Handle delete key to remove selected connection, person, textbox, or legend"""
         if self.selected_connection:
             self.delete_connection()
         elif self.selected_person:
             self.app.delete_person()
         elif self.selected_textbox:
             self.app.delete_textbox()
+        elif self.selected_legend:
+            self.app.delete_legend()
     
     def on_color_cycle_key(self, event):
         """Handle 'c' key to cycle colors of selected person or textbox"""
@@ -534,7 +536,7 @@ class EventHandlers:
             # Use a dialog to get updated information
             dialog = LegendDialog(self.app.root, 
                                  "Edit Legend Card", 
-                                 title=legend.title, 
+                                 legend_title=legend.title, 
                                  color_entries=legend.color_entries)
             self.app.root.wait_window(dialog.dialog)
             
