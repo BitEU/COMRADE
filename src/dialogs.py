@@ -20,7 +20,7 @@ class PersonDialog:
         self.result = None
         self.dialog = tk.Toplevel(parent)
         self.dialog.title(f"✏️ {title}")
-        self.dialog.geometry("450x900")
+        self.dialog.geometry("900x750")
         self.dialog.configure(bg=COLORS['background'])
         self.dialog.transient(parent)
         self.dialog.grab_set()
@@ -28,10 +28,10 @@ class PersonDialog:
         
         # Center the dialog
         self.dialog.update_idletasks()
-        x = (self.dialog.winfo_screenwidth() // 2) - (450 // 2)
-        y = (self.dialog.winfo_screenheight() // 2) - (900 // 2)
-        self.dialog.geometry(f"450x900+{x}+{y}")
-        
+        x = (self.dialog.winfo_screenwidth() // 2) - (900 // 2)
+        y = (self.dialog.winfo_screenheight() // 2) - (750 // 2)
+        self.dialog.geometry(f"900x750+{x}+{y}")
+
         # Main container
         main_frame = tk.Frame(self.dialog, bg=COLORS['background'])
         main_frame.pack(fill=tk.BOTH, expand=True, padx=25, pady=25)
@@ -64,82 +64,72 @@ class PersonDialog:
         ]
         
         self.entries = {}
-        for i, (label, field, required) in enumerate(fields):
-            # Label
+        num_cols = 2
+        col_width = 20
+        for idx, (label, field, required) in enumerate(fields):
+            row = idx // num_cols
+            col = idx % num_cols
             label_text = label
             if required:
                 label_text += " *"
-            
-            field_label = tk.Label(form_inner, 
-                                  text=label_text,
-                                  font=("Segoe UI", 11, "bold" if required else "normal"),
-                                  fg=COLORS['text_primary'],
-                                  bg=COLORS['surface'],
-                                  anchor="w")
-            field_label.grid(row=i*2, column=0, sticky="w", pady=(8 if i > 0 else 0, 4))
-            
-            # Entry with modern styling
-            entry = tk.Entry(form_inner, 
-                           font=("Segoe UI", 12),
-                           bg='white',
-                           fg=COLORS['text_primary'],
-                           relief=tk.FLAT,
-                           bd=8,
-                           highlightthickness=2,
-                           highlightcolor=COLORS['primary'],
-                           highlightbackground=COLORS['border'],
-                           width=35)
-            entry.grid(row=i*2+1, column=0, sticky="ew", pady=(0, 6))
-            
+            field_label = tk.Label(form_inner,
+                                   text=label_text,
+                                   font=("Segoe UI", 11, "bold" if required else "normal"),
+                                   fg=COLORS['text_primary'],
+                                   bg=COLORS['surface'],
+                                   anchor="w")
+            field_label.grid(row=row*2, column=col, sticky="w", pady=(8 if row > 0 else 0, 4), padx=(0, 10) if col == 0 else (10, 0))
+            entry = tk.Entry(form_inner,
+                             font=("Segoe UI", 12),
+                             bg='white',
+                             fg=COLORS['text_primary'],
+                             relief=tk.FLAT,
+                             bd=8,
+                             highlightthickness=2,
+                             highlightcolor=COLORS['primary'],
+                             highlightbackground=COLORS['border'],
+                             width=col_width)
+            entry.grid(row=row*2+1, column=col, sticky="ew", pady=(0, 6), padx=(0, 10) if col == 0 else (10, 0))
             if field in kwargs:
                 entry.insert(0, kwargs[field])
-            
             self.entries[field] = entry
-        
-        # Configure grid weights
+        # Configure grid weights for both columns
         form_inner.columnconfigure(0, weight=1)
-          # Required field note
+        form_inner.columnconfigure(1, weight=1)
+        # Place required field note below the last row, spanning both columns
+        last_row = ((len(fields)-1) // num_cols + 1) * 2
         note_label = tk.Label(form_inner,
-                             text="* Required fields",
-                             font=("Segoe UI", 9),
-                             fg=COLORS['text_secondary'],
-                             bg=COLORS['surface'])
-        note_label.grid(row=len(fields)*2, column=0, sticky="w", pady=(10, 0))
-        
-        # File attachments section
+                              text="* Required fields",
+                              font=("Segoe UI", 9),
+                              fg=COLORS['text_secondary'],
+                              bg=COLORS['surface'])
+        note_label.grid(row=last_row, column=0, columnspan=2, sticky="w", pady=(10, 0))
+        # File attachments section below, spanning both columns
         files_label = tk.Label(form_inner,
-                              text="📎 Attached Files:",
-                              font=("Segoe UI", 11, "bold"),
-                              fg=COLORS['text_primary'],
-                              bg=COLORS['surface'],
-                              anchor="w")
-        files_label.grid(row=len(fields)*2+1, column=0, sticky="w", pady=(12, 4))
-        
-        # Files frame
+                               text="📎 Attached Files:",
+                               font=("Segoe UI", 11, "bold"),
+                               fg=COLORS['text_primary'],
+                               bg=COLORS['surface'],
+                               anchor="w")
+        files_label.grid(row=last_row+1, column=0, columnspan=2, sticky="w", pady=(12, 4))
         files_frame = tk.Frame(form_inner, bg=COLORS['surface'])
-        files_frame.grid(row=len(fields)*2+2, column=0, sticky="ew", pady=(0, 10))
-        
-        # File list and buttons
+        files_frame.grid(row=last_row+2, column=0, columnspan=2, sticky="ew", pady=(0, 10))
         self.files_list = tk.Listbox(files_frame, height=3, font=("Segoe UI", 10),
                                     bg='white', fg=COLORS['text_primary'],
                                     selectbackground=COLORS['primary'])
         self.files_list.pack(fill=tk.X, pady=(0, 5))
-        
         files_btn_frame = tk.Frame(files_frame, bg=COLORS['surface'])
         files_btn_frame.pack(fill=tk.X)
-        
         add_file_btn = tk.Button(files_btn_frame, text="+ Add File",
-                                command=self.add_file, font=("Segoe UI", 9),
-                                bg=COLORS['primary'], fg='white', relief=tk.FLAT,
-                                padx=10, pady=4, cursor='hand2')
+                                 command=self.add_file, font=("Segoe UI", 9),
+                                 bg=COLORS['primary'], fg='white', relief=tk.FLAT,
+                                 padx=10, pady=4, cursor='hand2')
         add_file_btn.pack(side=tk.LEFT, padx=(0, 5))
-        
         remove_file_btn = tk.Button(files_btn_frame, text="Remove",
-                                   command=self.remove_file, font=("Segoe UI", 9),
-                                   bg=COLORS['text_secondary'], fg='white', relief=tk.FLAT,
-                                   padx=10, pady=4, cursor='hand2')
+                                    command=self.remove_file, font=("Segoe UI", 9),
+                                    bg=COLORS['text_secondary'], fg='white', relief=tk.FLAT,
+                                    padx=10, pady=4, cursor='hand2')
         remove_file_btn.pack(side=tk.LEFT)
-        
         # Initialize files list with existing files
         self.attached_files = kwargs.get('files', [])
         for file_path in self.attached_files:
