@@ -1,10 +1,10 @@
 # 🔗 COMRADE - Connection Object Mapping and Relational Assessment Database Engine 
 
-A modern, interactive Python GUI application for visualizing and managing relationships between people. COMRADE provides an intuitive interface for creating, editing, and exploring connection networks with a beautiful, modern design.
+A modern, interactive Python GUI application for visualizing and managing complex relationship networks between people, textboxes, and legend cards. COMRADE provides an intuitive interface for creating, editing, and exploring connection networks with a beautiful, modern design and powerful data management capabilities.
 
 ## 📋 Table of Contents
 
-- [🔗 COMRADE](#-comrade---people-connection-visualizer)
+- [🔗 COMRADE](#-comrade---connection-object-mapping-and-relational-assessment-database-engine)
   - [📋 Table of Contents](#-table-of-contents)
   - [✨ Features](#-features)
   - [🚀 Getting Started](#-getting-started)
@@ -12,11 +12,12 @@ A modern, interactive Python GUI application for visualizing and managing relati
     - [Installation](#installation)
     - [Running the Application](#running-the-application)
   - [💻 Usage](#-usage)
-    - [Adding People](#adding-people)
+    - [Adding Content](#adding-content)
     - [Creating Connections](#creating-connections)
     - [Editing Information](#editing-information)
     - [Navigation Controls](#navigation-controls)
     - [Data Management](#data-management)
+    - [Clipboard Operations](#clipboard-operations)
   - [🎨 Interface Overview](#-interface-overview)
   - [🔧 Technical Details](#-technical-details)
     - [Architecture](#architecture)
@@ -24,49 +25,74 @@ A modern, interactive Python GUI application for visualizing and managing relati
     - [Data Format](#data-format)
   - [⌨️ Keyboard Shortcuts](#️-keyboard-shortcuts)
   - [🎯 Features in Detail](#-features-in-detail)
-    - [Person Management](#person-management)
+    - [Card Management](#card-management)
     - [Connection System](#connection-system)
     - [Visual Design](#visual-design)
     - [Zoom and Pan](#zoom-and-pan)
-  - [ℹ️ Frequently Asked Questions](#frequently-asked-questions)
+    - [File Attachments](#file-attachments)
+  - [ℹ️ Frequently Asked Questions](#ℹ️-frequently-asked-questions)
   - [📄 License](#-license)
   - [🤝 Contributing](#-contributing)
 
 ## ✨ Features
 
-- **👤 Person Management**: Add, edit, and manage detailed person profiles with information including:
-  - Full Name
-  - Date of Birth
-  - Alias/Nickname
-  - Address
-  - Phone Number
-  - File attachments (images, documents, etc.)
+### **🃏 Multi-Card System**
+- **👤 Person Cards**: Comprehensive people profiles with detailed information
+- **📝 Textbox Cards**: Rich text content cards for notes, documentation, and context
+- **📊 Legend Cards**: Color-coded legend system for visual organization
 
-- **🔗 Connection Visualization**: Create and manage labeled relationships between people
-  - Interactive connection creation via right-click
-  - Customizable connection labels
-  - Visual connection lines with editable labels
+### **👤 Person Management**
+- Full Name, Date of Birth, Alias/Nickname
+- Address, Phone Number, SSN, Email
+- File attachments (images, documents, etc.)
+- Profile picture support with auto-resizing
+- Color-coding system with cycling colors
 
-- **🎨 Modern UI Design**: Beautiful, modern interface with:
-  - Card-based person display with rounded corners and shadows
-  - Color-coded elements with professional color scheme
-  - Smooth hover effects and visual feedback
-  - Responsive design elements
+### **📝 Content Management**
+- Rich textbox cards with title and content areas
+- Legend cards with customizable color-coding system
+- Comprehensive note-taking capabilities
+- Visual organization tools
 
-- **🔍 Interactive Canvas**: Full-featured canvas with:
-  - Drag-and-drop person positioning
-  - Zoom in/out functionality with mouse wheel
-  - Pan with middle mouse button
-  - Grid overlay for alignment
-  - Auto-layout for new people
+### **🔗 Advanced Connection System**
+- **Interactive Creation**: Right-click to start/complete connections
+- **Universal Connections**: Connect any card type to any other card type
+- **Labeled Relationships**: Custom connection labels with visual styling
+- **Connection Editing**: Double-click labels to edit descriptions
+- **Visual Feedback**: Highlighted cards during connection mode
 
-- **💾 Data Persistence**: Robust data management with:
-  - Save/Load projects in ZIP format with file attachments
-  - Backward compatibility with legacy CSV format
-  - Automatic file organization and cleanup
-  - Preserves all relationships and positioning
+### **🎨 Modern UI Design**
+- **Card-Based Design**: Beautiful cards with shadows, rounded corners, and professional styling
+- **Color System**: Consistent color coding across all card types
+- **Hover Effects**: Smooth visual feedback and interaction cues
+- **Modern Typography**: Clean Segoe UI font family throughout
+- **Professional Theme**: Carefully crafted color palette and spacing
 
-- **⌨️ Keyboard Controls**: Full keyboard support for efficient workflow
+### **🔍 Interactive Canvas**
+- **Advanced Zoom**: Smooth zoom with mouse wheel (0.5x to 1.0x range)
+- **Pan Navigation**: Middle mouse button dragging for canvas navigation
+- **Drag & Drop**: Intuitive repositioning of all card types
+- **Grid System**: Visual alignment grid with zoom-aware scaling
+- **Smart Positioning**: Auto-placement of new cards at (500, 500)
+
+### **📋 Clipboard System**
+- **Copy/Cut/Paste**: Full clipboard support for all card types
+- **Smart Positioning**: Paste cards at mouse cursor location
+- **Data Preservation**: Maintains card data while clearing connections
+- **Cross-Session**: Clipboard persists during application session
+
+### **💾 Robust Data Management**
+- **ZIP Project Format**: Complete project packaging with file attachments
+- **Legacy Support**: Backward compatibility with CSV format
+- **File Organization**: Automatic extraction and cleanup of attached files
+- **Fuzzy Name Detection**: Warns about similar card names to prevent duplicates
+- **Auto-Updates**: Built-in update checking system
+
+### **🔧 Performance Optimizations**
+- **Efficient Rendering**: Direct canvas manipulation during drag operations
+- **Image Caching**: LRU cache for scaled images to improve zoom performance
+- **Debounced Updates**: Optimized zoom and text scaling with 50ms debouncing
+- **Memory Management**: Proper cleanup of canvas items and cached resources
 
 ## 🚀 Getting Started
 
@@ -74,7 +100,7 @@ A modern, interactive Python GUI application for visualizing and managing relati
 
 - Python 3.7 or higher
 - tkinter (usually included with Python)
-- Optional: Pillow (PIL) for PNG export functionality
+- Pillow (PIL) for image handling and PNG export (recommended)
 
 ### Installation
 
@@ -97,129 +123,189 @@ python main.py
 
 ## 💻 Usage
 
-### Adding People
+### Adding Content
 
-1. Click the **"👤 Add Person"** button in the toolbar
-2. Fill in the person's information in the dialog box
-3. Click **"Save"** to add the person to the canvas
+#### **Person Cards**
+1. Click **"👤 Add Person"** in the toolbar
+2. Fill in personal information (name, DOB, address, etc.)
+3. Attach files by clicking **"Attach Files"** and selecting documents/images
+4. Click **"Save"** to add the person to the canvas
+
+#### **Textbox Cards**
+1. Click **"📝 Add Textbox"** in the toolbar
+2. Enter a title and rich text content
+3. Use textbox cards for notes, documentation, or contextual information
+4. Click **"Save"** to add the textbox to the canvas
+
+#### **Legend Cards**
+1. Click **"📊 Edit Legend"** in the toolbar
+2. Create color-coded entries to organize your network
+3. Use legends to explain color meanings or categorize relationships
+4. Click **"Save"** to update the legend
 
 ### Creating Connections
 
-1. **Right-click** on a person card to start a connection
-2. The person will be highlighted and a temporary line will follow your mouse
-3. **Right-click** on another person to complete the connection
-4. Enter a label for the connection (e.g., "Friend", "Colleague", "Family")
+1. **Right-click** on any card to start a connection
+2. The card will be highlighted and a temporary line will follow your mouse
+3. **Right-click** on another card to complete the connection
+4. Enter a label for the connection (e.g., "Friend", "Colleague", "Reports to")
 5. Press **Escape** to cancel a connection in progress
 
 ### Editing Information
 
-- **Double-click** on a person card to edit their information
-- **Double-click** on a connection label to edit the relationship description
-- Use the **Delete** key to remove selected connections
-- Press **c** to change the color of a person card
+- **Double-click** any card to edit its information
+- **Double-click** connection labels to edit relationship descriptions
+- **Delete key** to remove selected connections or cards
+- **C key** to cycle through colors for person and textbox cards
 
 ### Navigation Controls
 
-- **Drag** person cards to reposition them
-- **Mouse wheel** to zoom in/out
+- **Drag** any card to reposition it
+- **Mouse wheel** to zoom in/out (0.5x to 1.0x range)
 - **Middle mouse button + drag** to pan around the canvas
-- **Zoom slider** in the bottom-right for precise zoom control
+- **Zoom slider** in the status bar for precise zoom control
 
 ### Data Management
 
-- **💾 Save Project**: Export your network to a ZIP file containing:
-  - Network data (CSV format)
-  - All attached images and files
-  - Preserves all relationships and positioning
-- **📁 Load Project**: Import a previously saved project
-  - Supports new ZIP format with file attachments
-  - Backward compatible with legacy CSV files
-  - Automatically extracts attached files to local storage
-- **🗑️ Clear All**: Remove all people and connections (with confirmation)
+- **💾 Save Project**: Export complete network to ZIP file with all attachments
+- **📁 Load Project**: Import previously saved projects (ZIP or legacy CSV)
+- **🖼️ Export PNG**: Generate high-quality PNG image of your network
+- **🗑️ Clear All**: Remove all content with confirmation dialog
+- **🔄 Check Updates**: Automatic update checking with manual option
+
+### Clipboard Operations
+
+- **Ctrl+C**: Copy selected card to clipboard
+- **Ctrl+X**: Cut selected card to clipboard  
+- **Ctrl+V**: Paste card at mouse cursor position
+- Cards are pasted without connections for clean network building
 
 ## 🎨 Interface Overview
 
-The application features a clean, modern interface divided into several sections:
+The application features a sophisticated, modern interface:
 
-- **Header**: Application title and main navigation
-- **Toolbar**: Quick access buttons for primary actions
-- **Canvas**: Main visualization area with grid overlay
-- **Instructions Panel**: Helpful usage tips
-- **Status Bar**: Current mode and zoom controls
+- **Header Bar**: Application title and branding
+- **Toolbar**: Primary action buttons with hover effects
+- **Main Canvas**: Infinite workspace with grid overlay and zoom capabilities
+- **Status Bar**: Real-time feedback, connection mode indicators, and zoom controls
+- **Context Menus**: Right-click interactions for connection creation
 
 ## 🔧 Technical Details
 
 ### Architecture
 
-The application follows a modular architecture:
+The application follows a clean, modular architecture:
 
-- **ConnectionApp**: Main application class handling UI and logic
-- **Person**: Data model for individual people
-- **PersonDialog**: Modal dialog for adding/editing person information
-- **ConnectionLabelDialog**: Modal dialog for editing connection labels
+- **main.py**: Application entry point and main window management
+- **src/models.py**: Data models (Person, TextboxCard, LegendCard)
+- **src/event_handlers.py**: Comprehensive event handling and user interactions
+- **src/canvas_helpers.py**: Canvas rendering, widget creation, and visual effects
+- **src/ui_setup.py**: UI initialization and styling
+- **src/data_management.py**: File I/O, project management, and persistence
+- **src/dialogs.py**: Modal dialogs for data entry and editing
+- **src/constants.py**: Color schemes and configuration constants
+- **src/utils.py**: Utility functions and helpers
 
 ### Dependencies
 
 - **tkinter**: GUI framework (Python standard library)
+- **Pillow (PIL)**: Image processing and PNG export
 - **csv**: Data persistence (Python standard library)
-- **logging**: Application logging (Python standard library)
+- **zipfile**: Project packaging (Python standard library)
+- **logging**: Comprehensive application logging (Python standard library)
+- **urllib**: Update checking functionality (Python standard library)
 
 ### Data Format
 
-Data is saved in CSV format with the following structure:
+Projects are saved as ZIP files containing:
 
+**data.csv structure:**
 ```csv
-ID,Name,DOB,Alias,Address,Phone,X,Y
-1,John Doe,1990-01-01,Johnny,123 Main St,555-1234,100,200
+ID,Name,DOB,Alias,Address,Phone,SSN,Email,X,Y,Color,Files
+1,John Doe,1990-01-01,Johnny,123 Main St,555-1234,123-45-6789,john@email.com,500,500,0,"photo.jpg;document.pdf"
+TEXTBOXES
+ID,Title,Content,X,Y,Color
+1,Meeting Notes,Important discussion points...,600,300,1
+LEGENDS  
+ID,Title,Color_Entries,X,Y
+1,Status Legend,"{""0"": ""Active"", ""1"": ""Inactive""}",700,100
 CONNECTIONS
 From_ID,To_ID,Label
 1,2,Best Friend
 ```
 
+**File Structure:**
+```
+project.zip
+├── data.csv          # Network data
+└── files/            # Attached images
+    └── [supporting image files]
+```
+
 ## ⌨️ Keyboard Shortcuts
 
-| Key | Action |
-|-----|--------|
-| **Escape** | Cancel connection mode |
-| **Delete** | Delete selected connection |
-| **Backspace** | Delete selected connection |
-| **Enter** | Confirm dialog input |
-| **Double-click** | Edit person or connection |
-| **c** | Edit person card color |
+| Key Combination | Action |
+|-----------------|--------|
+| **Left Click** | Select and drag cards |
+| **Right Click** | Start/complete connections |
+| **Double Click** | Edit cards or connection labels |
+| **Escape** | Cancel connection mode or clear selection |
+| **Delete/Backspace** | Delete selected connection or card |
+| **C** | Cycle card colors (person/textbox cards) |
+| **Ctrl+C** | Copy selected card |
+| **Ctrl+X** | Cut selected card |
+| **Ctrl+V** | Paste card at cursor |
+| **Mouse Wheel** | Zoom in/out |
+| **Middle Mouse + Drag** | Pan canvas |
 
 ## 🎯 Features in Detail
 
-### Person Management
-- Comprehensive person profiles with multiple data fields
-- Visual cards with emoji icons for easy identification
-- Automatic positioning with smart layout algorithm
-- Hover effects for improved user experience
+### Card Management
+- **Three Card Types**: People, textboxes, and legends for comprehensive data organization
+- **Rich Data Models**: Extensive information storage with validation
+- **Visual Consistency**: Unified design language across all card types
+- **Smart Defaults**: Automatic positioning and sensible default values
 
 ### Connection System
-- Intuitive right-click connection creation
-- Labeled relationships with custom descriptions
-- Visual connection lines with clickable labels
-- Connection editing and deletion capabilities
+- **Universal Connectivity**: Any card can connect to any other card
+- **Visual Connection Lines**: Clean, professional connection rendering
+- **Interactive Labels**: Clickable, editable connection descriptions
+- **Connection Management**: Easy creation, editing, and deletion
 
 ### Visual Design
-- Modern card-based design with shadows and rounded corners
-- Professional color scheme with consistent theming
-- Responsive hover effects and visual feedback
-- Clean typography with Segoe UI font family
+- **Modern Aesthetics**: Card-based design with subtle shadows and rounded corners
+- **Color Psychology**: Carefully chosen color palette for readability and professionalism
+- **Responsive Interactions**: Smooth hover effects and visual feedback
+- **Typography**: Consistent use of Segoe UI for optimal readability
 
 ### Zoom and Pan
-- Smooth zoom functionality with mouse wheel
-- Pan capabilities with middle mouse button
-- Zoom slider for precise control
-- Maintains aspect ratios and text readability
+- **Smooth Scaling**: Proportional zoom with maintained aspect ratios
+- **Text Scaling**: Intelligent font scaling that preserves readability
+- **Image Scaling**: High-quality image resizing with caching
+- **Performance**: Optimized rendering for large networks
+
+### File Attachments
+- **Multiple Formats**: Support for images, documents, and various file types
+- **Visual Preview**: Image thumbnails directly in person cards
+- **File Management**: Automatic organization and cleanup
+- **Package Integrity**: Complete project packaging with all dependencies
 
 ## ℹ️ Frequently Asked Questions
 
-Q: If I have a large Excel sheet with the names of suspects, how can I more easily add it in?
-A: One of two ways. You can extract your .ZIP case file, edit the data.csv file inside, and insert new rows above the CONNECTIONS section with the data of your new people, or you can use the legacy CSV format (like /test_files/musicians.csv), insert the data that way, and load it into COMRADE.
+**Q: How can I import data from Excel or CSV files?**
+A: You can import data by: (1) Extracting your .ZIP project file, editing the data.csv file, and inserting new rows above the CONNECTIONS section, or (2) Converting your data to the legacy CSV format (see /test_files/musicians.csv as an example) and loading it directly into COMRADE.
 
-Q: What's next?
-A: The PNG exporting is extremely buggy and had data clipping everywhere, which is a problem for a program whose purpose is to export data in a readable way. This is a work in progress.
+**Q: What file formats are supported for attachments?**
+A: COMRADE supports common image formats (JPG, PNG, GIF, BMP, WebP) with thumbnail preview, and any document format for attachment. Images are automatically resized and displayed in person cards.
+
+**Q: How does the color-coding system work?**
+A: Each card type has a color-coding system. Person and textbox cards can cycle through different colors using the 'C' key, while legend cards are used to document what each color represents in your network.
+
+**Q: What's the performance like with large networks?**
+A: COMRADE is optimized for performance with features like image caching, debounced zoom updates, and efficient canvas rendering. It can handle substantial networks while maintaining smooth interactions. It isn't perfect, but it's pretty good.
+
+**Q: Is the data format future-proof?**
+A: Yes, COMRADE maintains backward compatibility with the legacy CSV format while using a modern ZIP-based project format. This ensures your data remains accessible across versions.
 
 ## 📄 License
 
@@ -227,4 +313,4 @@ This project is licensed under the GNU General Public License v3.0 - see the [LI
 
 ## 🤝 Contributing
 
-Contributions are welcome! Please feel free to submit issues, feature requests, or pull requests to improve COMRADE.
+Contributions are welcome! Please feel free to submit issues, feature requests, or pull requests to improve COMRADE. The modular architecture makes it easy to extend functionality and add new features.
