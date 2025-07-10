@@ -4,6 +4,7 @@ import os
 import logging
 from logging.handlers import TimedRotatingFileHandler
 from datetime import datetime
+import difflib
 
 # Set up logging with both console and daily rotating file
 def setup_logging():
@@ -62,3 +63,41 @@ def darken_color(color):
     rgb = tuple(int(color[i:i+2], 16) for i in (0, 2, 4))
     darkened = tuple(int(c * 0.8) for c in rgb)
     return '#%02x%02x%02x' % darkened
+
+def find_similar_names(new_name, existing_names, threshold=0.7):
+    """
+    Check if a new name is similar to any existing names.
+    
+    Args:
+        new_name (str): The new name to check
+        existing_names (list): List of existing names to compare against
+        threshold (float): Similarity threshold (0.0-1.0), default 0.7
+    
+    Returns:
+        str or None: The most similar existing name if above threshold, else None
+    """
+    if not new_name or not new_name.strip():
+        return None
+    
+    new_name = new_name.strip().lower()
+    best_match = None
+    best_similarity = 0.0
+    
+    for existing_name in existing_names:
+        if not existing_name or not existing_name.strip():
+            continue
+            
+        existing_name = existing_name.strip().lower()
+        
+        # Skip identical names (they would be 1.0 similarity)
+        if new_name == existing_name:
+            return existing_name
+        
+        # Calculate similarity ratio
+        similarity = difflib.SequenceMatcher(None, new_name, existing_name).ratio()
+        
+        if similarity > best_similarity and similarity >= threshold:
+            best_similarity = similarity
+            best_match = existing_name
+    
+    return best_match

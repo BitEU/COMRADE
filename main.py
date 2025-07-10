@@ -26,7 +26,7 @@ except ImportError:
 from src.constants import COLORS, CARD_COLORS
 from src.models import Person, TextboxCard, LegendCard
 from src.dialogs import PersonDialog, TextboxDialog, LegendDialog, ConnectionLabelDialog, VersionUpdateDialog, NoUpdateDialog
-from src.utils import setup_logging, darken_color
+from src.utils import setup_logging, darken_color, find_similar_names
 from src.ui_setup import UISetup
 from src.event_handlers import EventHandlers
 from src.data_management import DataManagement
@@ -148,6 +148,22 @@ class ConnectionApp:
             files = dialog.result.pop('files', [])
             person = Person(**dialog.result)
             person.files = files  # Set files after creation
+            
+            # Check for similar names before creating the person
+            existing_names = [p.name for p in self.people.values() if p.name and p.name.strip()]
+            similar_name = find_similar_names(person.name, existing_names)
+            
+            if similar_name:
+                # Show confirmation dialog
+                original_name = next(p.name for p in self.people.values() if p.name and p.name.strip().lower() == similar_name.lower())
+                confirm = messagebox.askyesno(
+                    "Similar Name Detected",
+                    f'This card has a similar title to "{original_name}". Are you sure you\'d like to continue?'
+                )
+                if not confirm:
+                    logger.info("User cancelled person creation due to similar name")
+                    return
+            
             person_id = self.next_id
             self.next_id += 1
             logger.info(f"Creating person with ID {person_id}: {person.name}")
