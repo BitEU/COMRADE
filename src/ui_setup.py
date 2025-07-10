@@ -110,6 +110,14 @@ class UISetup:
         self.app.root.bind("<Key-Delete>", self.app.events.on_delete_key)
         self.app.root.bind("<Key-BackSpace>", self.app.events.on_delete_key)
         self.app.root.bind("<Key-c>", self.app.events.on_color_cycle_key)
+        
+        # Bind clipboard operations (Ctrl+C, Ctrl+X, Ctrl+V)
+        self.app.root.bind("<Control-c>", self.app.events.on_copy_key)
+        self.app.root.bind("<Control-x>", self.app.events.on_cut_key)
+        self.app.root.bind("<Control-v>", self.app.events.on_paste_key)
+        self.app.canvas.bind("<Control-c>", self.app.events.on_copy_key)
+        self.app.canvas.bind("<Control-x>", self.app.events.on_cut_key)
+        self.app.canvas.bind("<Control-v>", self.app.events.on_paste_key)
           # Modern instructions panel
         self.create_instructions_panel(main_container)
         
@@ -174,11 +182,12 @@ class UISetup:
         instructions_frame.pack(fill=tk.X, pady=(10, 0))
         
         instructions = [
-            "🖱️ Left-click to select and move people",
-            "🔗 Right-click to link: first person, then target", 
-            "✏️ Double-click on a person to edit their information",
-            "⌨️ Press 'C' to cycle selected person's color",
-            "❌ Press Delete to remove selected person or connection",
+            "🖱️ Left-click to select and move cards",
+            "🔗 Right-click to link: first card, then target", 
+            "✏️ Double-click on a card to edit information",
+            "⌨️ Press 'C' to cycle selected card's color",
+            "📋 Ctrl+C to copy, Ctrl+X to cut, Ctrl+V to paste",
+            "❌ Press Delete to remove selected card or connection",
             "🚫 Press Escape to cancel an active connection"
         ]
         

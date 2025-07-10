@@ -23,6 +23,13 @@ class EventHandlers:
         self.current_hover = None
         self._last_mouse_move_time = 0
         self._pending_color_refresh = None
+        
+        # Clipboard system for copy/cut/paste
+        self.clipboard_data = None
+        self.clipboard_type = None
+        self.clipboard_source_id = None  # For cut operations
+        self.last_mouse_x = 500  # Default position for paste
+        self.last_mouse_y = 500
 
     def on_zoom(self, value):
         # Scale the canvas content based on the zoom value
@@ -251,6 +258,11 @@ class EventHandlers:
         
         canvas_x = self.app.canvas.canvasx(event.x)
         canvas_y = self.app.canvas.canvasy(event.y)
+        
+        # Track mouse position for paste operations (convert to world coordinates)
+        zoom = self.last_zoom
+        self.last_mouse_x = canvas_x / zoom
+        self.last_mouse_y = canvas_y / zoom
         
         items = self.app.canvas.find_overlapping(canvas_x - tolerance, canvas_y - tolerance, 
                                            canvas_x + tolerance, canvas_y + tolerance)
@@ -653,3 +665,141 @@ class EventHandlers:
                 self.app.canvas.itemconfig(bg_rect_id, outline=COLORS['border'])
 
         self.selected_connection = None
+
+    def on_copy_key(self, event):
+        """Handle Ctrl+C to copy selected card"""
+        if self.selected_person:
+            self.copy_card('person', self.selected_person)
+        elif self.selected_textbox:
+            self.copy_card('textbox', self.selected_textbox)
+        elif self.selected_legend:
+            self.copy_card('legend', self.selected_legend)
+        else:
+            self.app.update_status("❌ No card selected for copying")
+    
+    def on_cut_key(self, event):
+        """Handle Ctrl+X to cut selected card"""
+        if self.selected_person:
+            self.cut_card('person', self.selected_person)
+        elif self.selected_textbox:
+            self.cut_card('textbox', self.selected_textbox)
+        elif self.selected_legend:
+            self.cut_card('legend', self.selected_legend)
+        else:
+            self.app.update_status("❌ No card selected for cutting")
+    
+    def on_paste_key(self, event):
+        """Handle Ctrl+V to paste card at mouse cursor"""
+        if self.clipboard_data is None:
+            self.app.update_status("❌ Nothing to paste")
+            return
+        
+        self.paste_card()
+    
+    def copy_card(self, card_type, card_id):
+        """Copy a card to clipboard"""
+        from src.models import Person, TextboxCard, LegendCard
+        import copy
+        
+        if card_type == 'person':
+            original = self.app.people[card_id]
+            # Create a deep copy to avoid reference issues
+            self.clipboard_data = copy.deepcopy(original)
+            card_name = original.name
+        elif card_type == 'textbox':
+            original = self.app.textboxes[card_id]
+            self.clipboard_data = copy.deepcopy(original)
+            card_name = original.title
+        elif card_type == 'legend':
+            original = self.app.legends[card_id]
+            self.clipboard_data = copy.deepcopy(original)
+            card_name = original.title
+        
+        self.clipboard_type = card_type
+        self.clipboard_source_id = None  # Clear cut source since this is copy
+        self.app.update_status(f"📋 Copied '{card_name}' to clipboard")
+    
+    def cut_card(self, card_type, card_id):
+        """Cut a card to clipboard (copy + mark for deletion)"""
+        # First copy the card
+        self.copy_card(card_type, card_id)
+        
+        # Mark source for deletion after paste
+        self.clipboard_source_id = card_id
+        
+        if card_type == 'person':
+            card_name = self.app.people[card_id].name
+        elif card_type == 'textbox':
+            card_name = self.app.textboxes[card_id].title
+        elif card_type == 'legend':
+            card_name = self.app.legends[card_id].title
+            
+        self.app.update_status(f"✂️ Cut '{card_name}' to clipboard")
+    
+    def paste_card(self):
+        """Paste card from clipboard at mouse cursor position"""
+        from src.models import Person, TextboxCard, LegendCard
+        import copy
+        
+        if self.clipboard_data is None:
+            return
+        
+        # Create new card with unique ID
+        new_id = self.app.next_id
+        self.app.next_id += 1
+        
+        # Deep copy the clipboard data to avoid reference issues
+        new_card = copy.deepcopy(self.clipboard_data)
+        
+        # Set position to mouse cursor location
+        new_card.x = self.last_mouse_x
+        new_card.y = self.last_mouse_y
+        
+        # Clear all connections (new card should have no connections)
+        new_card.connections = {}
+        
+        # Add to appropriate collection and create widget
+        if self.clipboard_type == 'person':
+            self.app.people[new_id] = new_card
+            self.app.canvas_helpers.create_person_widget(new_id)
+            card_name = new_card.name
+        elif self.clipboard_type == 'textbox':
+            self.app.textboxes[new_id] = new_card
+            self.app.canvas_helpers.create_textbox_widget(new_id)
+            card_name = new_card.title
+        elif self.clipboard_type == 'legend':
+            self.app.legends[new_id] = new_card
+            self.app.canvas_helpers.create_legend_widget(new_id)
+            card_name = new_card.title
+        
+        # If this was a cut operation, delete the source card
+        if self.clipboard_source_id is not None:
+            if self.clipboard_type == 'person' and self.clipboard_source_id in self.app.people:
+                self.selected_person = self.clipboard_source_id
+                self.app.delete_person()
+            elif self.clipboard_type == 'textbox' and self.clipboard_source_id in self.app.textboxes:
+                self.selected_textbox = self.clipboard_source_id
+                self.app.delete_textbox()
+            elif self.clipboard_type == 'legend' and self.clipboard_source_id in self.app.legends:
+                self.selected_legend = self.clipboard_source_id
+                self.app.delete_legend()
+            
+            # Clear cut source after successful paste
+            self.clipboard_source_id = None
+            self.app.update_status(f"📌 Pasted '{card_name}' at cursor position")
+        else:
+            self.app.update_status(f"📌 Pasted '{card_name}' at cursor position")
+        
+        # Select the newly pasted card
+        if self.clipboard_type == 'person':
+            self.selected_person = new_id
+            self.selected_textbox = None
+            self.selected_legend = None
+        elif self.clipboard_type == 'textbox':
+            self.selected_textbox = new_id
+            self.selected_person = None
+            self.selected_legend = None
+        elif self.clipboard_type == 'legend':
+            self.selected_legend = new_id
+            self.selected_person = None
+            self.selected_textbox = None
