@@ -58,7 +58,9 @@ class PersonDialog:
             ("🎂 Date of Birth:", "dob", False),
             ("🏷️ Alias/Nickname:", "alias", False),
             ("🏠 Address:", "address", False),
-            ("📞 Phone Number:", "phone", False)
+            ("📞 Phone Number:", "phone", False),
+            ("🔒 SSN:", "ssn", False),
+            ("📧 Email:", "email", False),
         ]
         
         self.entries = {}

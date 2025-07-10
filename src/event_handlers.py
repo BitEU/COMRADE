@@ -491,6 +491,8 @@ class EventHandlers:
                                   alias=person.alias,
                                   address=person.address,
                                   phone=person.phone,
+                                  ssn=person.ssn,
+                                  email=person.email,
                                   files=person.files)
             self.app.root.wait_window(dialog.dialog)
             
@@ -501,6 +503,8 @@ class EventHandlers:
                 person.alias = dialog.result['alias']
                 person.address = dialog.result['address']
                 person.phone = dialog.result['phone']
+                person.ssn = dialog.result['ssn']
+                person.email = dialog.result['email']
                 person.files = dialog.result['files']
                 
                 # Refresh the specific person's widget on the canvas

@@ -46,8 +46,8 @@ class DataManagement:
                 
                 with open(csv_path, 'w', newline='', encoding='utf-8') as f:
                     writer = csv.writer(f)
-                    writer.writerow(['ID', 'Name', 'DOB', 'Alias', 'Address', 'Phone', 'X', 'Y', 'Color', 'Files', 'Type'])
-                    
+                    writer.writerow(['ID', 'Name', 'DOB', 'Alias', 'Address', 'Phone', 'SSN', 'Email', 'X', 'Y', 'Color', 'Files', 'Type'])
+
                     # Save people
                     for person_id, person in self.app.people.items():
                         # Process attached files
@@ -74,7 +74,7 @@ class DataManagement:
                         
                         writer.writerow([
                             person_id, person.name, person.dob, person.alias, 
-                            person.address, person.phone, person.x, person.y, 
+                            person.address, person.phone, person.ssn, person.email, person.x, person.y, 
                             person.color, files_json, 'person'
                         ])
                     
@@ -489,7 +489,9 @@ class DataManagement:
                     ("DOB:", person.dob),
                     ("Alias:", person.alias),
                     ("Addr:", person.address),
-                    ("Phone:", person.phone)
+                    ("Phone:", person.phone),
+                    ("SSN:", person.ssn),
+                    ("Email:", person.email)
                 ]
                 details = [(label, value) for label, value in details if value and value.strip()]
 

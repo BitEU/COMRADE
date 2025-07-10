@@ -296,7 +296,9 @@ class CanvasHelpers:
             f"🎂 {person.dob}" if person.dob else "",
             f"🏷️ {person.alias}" if person.alias else "",
             f"🏠 {person.address}" if person.address else "",
-            f"📞 {person.phone}" if person.phone else ""
+            f"📞 {person.phone}" if person.phone else "",
+            f"🔒 {person.ssn}" if person.ssn else "",
+            f"📧 {person.email}" if person.email else ""
         ]
         info_lines = [line for line in info_lines if line.strip()]
         
@@ -385,9 +387,9 @@ class CanvasHelpers:
 
         details_start_y = y - half_height + header_height + int(15 * zoom)
         line_height = int(20 * zoom)
-        
-        details = [("🎂", person.dob), ("🏷️", person.alias), ("🏠", person.address), ("📞", person.phone)]
-        
+
+        details = [("🎂", person.dob), ("🏷️", person.alias), ("🏠", person.address), ("📞", person.phone), ("🔒", person.ssn), ("📧", person.email)]
+
         current_y = details_start_y
         icon_x = x - half_width + int(15 * zoom)
         text_x = icon_x + int(25 * zoom)
