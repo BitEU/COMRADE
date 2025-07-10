@@ -152,17 +152,10 @@ class ConnectionApp:
             self.next_id += 1
             logger.info(f"Creating person with ID {person_id}: {person.name}")
             
-            # Position using box layout
-            cols = 2
-            col_width = 400
-            row_height = 200
-            start_x = 200
-            start_y = 120
-            row = (len(self.people)) // cols
-            col = (len(self.people)) % cols
-            person.x = start_x + col * col_width
-            person.y = start_y + row * row_height
-            logger.info(f"Positioned person at ({person.x}, {person.y})")
+            # Always place new person card at (500, 500)
+            person.x = 500
+            person.y = 500
+            logger.info(f"Positioned person at (500, 500)")
             
             self.people[person_id] = person
             logger.info(f"Added person to data structure. Total people: {len(self.people)}")
@@ -182,18 +175,10 @@ class ConnectionApp:
             self.next_id += 1
             logger.info(f"Creating textbox with ID {textbox_id}: {textbox.title}")
             
-            # Position using box layout (offset from people)
-            cols = 2
-            col_width = 400
-            row_height = 200
-            start_x = 200
-            start_y = 120
-            total_cards = len(self.people) + len(self.textboxes)
-            row = total_cards // cols
-            col = total_cards % cols
-            textbox.x = start_x + col * col_width
-            textbox.y = start_y + row * row_height
-            logger.info(f"Positioned textbox at ({textbox.x}, {textbox.y})")
+            # Always place new textbox card at (500, 500)
+            textbox.x = 500
+            textbox.y = 500
+            logger.info(f"Positioned textbox at (500, 500)")
             
             self.textboxes[textbox_id] = textbox
             logger.info(f"Added textbox to data structure. Total textboxes: {len(self.textboxes)}")

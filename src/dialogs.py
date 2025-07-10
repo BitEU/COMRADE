@@ -233,7 +233,7 @@ class TextboxDialog:
         self.result = None
         self.dialog = tk.Toplevel(parent)
         self.dialog.title(f"📝 {dialog_title}")
-        self.dialog.geometry("500x650")
+        self.dialog.geometry("900x750")
         self.dialog.configure(bg=COLORS['background'])
         self.dialog.transient(parent)
         self.dialog.grab_set()
@@ -241,9 +241,9 @@ class TextboxDialog:
         
         # Center the dialog
         self.dialog.update_idletasks()
-        x = (self.dialog.winfo_screenwidth() // 2) - (500 // 2)
-        y = (self.dialog.winfo_screenheight() // 2) - (650 // 2)
-        self.dialog.geometry(f"500x650+{x}+{y}")
+        x = (self.dialog.winfo_screenwidth() // 2) - (900 // 2)
+        y = (self.dialog.winfo_screenheight() // 2) - (750 // 2)
+        self.dialog.geometry(f"900x750+{x}+{y}")
         
         # Main container
         main_frame = tk.Frame(self.dialog, bg=COLORS['background'])
@@ -312,7 +312,7 @@ class TextboxDialog:
                                    highlightcolor=COLORS['primary'],
                                    highlightbackground=COLORS['border'],
                                    width=45,
-                                   height=12,
+                                   height=16,
                                    wrap=tk.WORD)
         
         scrollbar = tk.Scrollbar(text_frame, orient=tk.VERTICAL, command=self.content_text.yview)
